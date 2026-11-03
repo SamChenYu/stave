@@ -127,6 +127,12 @@ namespace {
 struct Extent {
     double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
     bool empty() const { return x0 > x1; }
+    void add(const Extent& o) {
+        x0 = std::min(x0, o.x0);
+        y0 = std::min(y0, o.y0);
+        x1 = std::max(x1, o.x1);
+        y1 = std::max(y1, o.y1);
+    }
     void add(const lunasvg::Box& b) {
         x0 = std::min(x0, double(b.x));
         y0 = std::min(y0, double(b.y));
@@ -138,16 +144,18 @@ struct Extent {
 // Grows `ext` to cover what e draws, in document units. lunasvg's own box for a group counts its
 // empty children too, as points at their origin; Verovio has many (for dots, articulations and
 // the like) whose origin is the page's corner, which would stretch each bar's box back to the start
-// of the score. So this looks at the shapes themselves (elements with no element children) and
-// skips the ones that cover nothing. A staff line, which has width but no height, still counts.
+// of the score. So this goes by the boxes of e's children that cover something, skipping the empty
+// ones, and only when none of them does, by e's own box. That last part is for text: lunasvg gives
+// a <tspan> no box, but the <text> around it has one. A staff line, which has width but no height,
+// still counts.
 void addDrawnExtent(const lunasvg::Element& e, Extent& ext) {
-    bool hasChildElements = false;
-    for (const lunasvg::Node& node : e.children()) {
-        if (!node.isElement()) continue;
-        hasChildElements = true;
-        addDrawnExtent(node.toElement(), ext);
+    Extent inside;
+    for (const lunasvg::Node& node : e.children())
+        if (node.isElement()) addDrawnExtent(node.toElement(), inside);
+    if (!inside.empty()) {
+        ext.add(inside);
+        return;
     }
-    if (hasChildElements) return;
     const lunasvg::Box b = e.getGlobalBoundingBox();
     if (b.w > 0 || b.h > 0) ext.add(b);
 }

@@ -115,6 +115,27 @@ TEST_SUITE("svg rendering") {
         CHECK(doc->render(1, 0, 0, 0, 5).px.empty());
     }
 
+    TEST_CASE("drawing only nearby pieces keeps text, though lunasvg gives its tspans no box") {
+        // Like Verovio's part names: the size is on an inner <tspan>, and the <text> says 0px.
+        const std::string svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"60\"><g class=\"system\">"
+            "<g class=\"label\"><text x=\"10\" y=\"40\" font-size=\"0px\"><tspan><tspan font-size=\"30px\">"
+            "Violin</tspan></tspan></text></g>"
+            "<g class=\"measure\"><rect x=\"300\" y=\"10\" width=\"80\" height=\"40\"/></g></g></svg>";
+        std::string error;
+        const auto whole = SvgDocument::fromData(svg, error);
+        const auto split = SvgDocument::fromData(svg, error);
+        REQUIRE(whole);
+        REQUIRE(split);
+        CHECK(split->splitInto(".system") == 2);
+        const Canvas a = whole->render(1, 0, 0, 400, 60), b = split->render(1, 0, 0, 400, 60);
+        int textPixels = 0;  // in the left half, where only the text is
+        for (int y = 0; y < a.h; ++y)
+            for (int x = 0; x < 200; ++x) textPixels += a.at(x, y) > 0;
+        CHECK(textPixels > 100);
+        CHECK(a.px == b.px);
+    }
+
     TEST_CASE("a very tall SVG is rejected instead of allocating a huge image") {
         const SvgRenderResult r = renderSvgData(filledSvg(1, 100, "fill=\"#000\""), 1000);  // 100,000 pixels tall
         CHECK(!r.canvas);
