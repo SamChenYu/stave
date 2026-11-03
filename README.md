@@ -12,6 +12,20 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
+## Run
+
+Needs a terminal that can show sixel graphics, such as Windows Terminal 1.22+, WezTerm, foot or
+iTerm2.
+
+```
+stave --svg FILE             # draw an SVG, 800 pixels wide
+stave --svg FILE --width 400 # ...at another width (the height keeps the aspect ratio)
+stave --test-pattern         # a test image, to check that sixel works in this terminal
+```
+
+Images are drawn as black ink on white paper for now. Colours in the SVG are ignored: what's
+drawn is how much ink covers each pixel, so the colours can follow the terminal's theme later.
+
 ## Tests
 
 ```

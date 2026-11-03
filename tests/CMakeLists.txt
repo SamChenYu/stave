@@ -12,11 +12,13 @@ add_executable(stave_tests
     support/image.cpp
     support/sixel_decoder.cpp
     golden_test.cpp
-    sixel_test.cpp)
+    sixel_test.cpp
+    svg_test.cpp)
 target_include_directories(stave_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # plutovg (built as part of lunasvg) reads and writes the PNG files.
 target_link_libraries(stave_tests PRIVATE stave_core plutovg::plutovg doctest::doctest_with_main)
 target_compile_definitions(stave_tests PRIVATE
+    STAVE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
     STAVE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden"
     STAVE_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}/output"
     _CRT_SECURE_NO_WARNINGS)  # allow plain std::getenv on MSVC

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40">
+  <!-- Only a viewBox, no width/height: the size comes from it. -->
+  <!-- Colour is ignored: a red square is solid ink. -->
+  <rect x="5" y="5" width="30" height="30" fill="#d03030"/>
+  <!-- Opacity is coverage: this square is half ink. -->
+  <rect x="45" y="5" width="30" height="30" fill="#000" fill-opacity="0.5"/>
+  <!-- A coloured stroke with no fill: a ring of solid ink with soft edges. -->
+  <circle cx="100" cy="20" r="14" fill="none" stroke="#3050d0" stroke-width="3"/>
+</svg>
