@@ -4,18 +4,22 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "encode.hpp"
 #include "pager.hpp"
+#include "platform.hpp"
 #include "score.hpp"
 #include "svgimage.hpp"
 #include "terminal.hpp"
@@ -36,12 +40,14 @@ const char* const kUsage =
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
     "  --png OUT.png    save the first screen (1600x900, dark ink on a cream page) instead\n"
+    "  --bench          time loading the file, drawing a screen, and each way of sending it\n"
     "  --print          print it instead, as wide as the terminal (always the case when output isn't a\n"
     "                   terminal)\n"
     "  --verovio-data DIR  where Verovio's music fonts are (default: verovio-data next to stave)\n"
     "  --test-pattern   draw a test image, to check that the terminal can show sixel graphics\n"
     "  --terminal-info  show what stave found out about this terminal\n"
-    "  --version        print the versions of stave and its libraries\n";
+    "  --version        print the versions of stave and its libraries\n"
+    "Set STAVE_DUMP_SVG=FILE to save the SVG Verovio draws a score as, for debugging.\n";
 
 constexpr int kFallbackWidth = 800;  // when the terminal doesn't say how wide it is
 
@@ -88,14 +94,32 @@ bool isSvgFile(const std::string& path) {
     return ext == ".svg";
 }
 
-// Loads FILE: an SVG as it is, or a score engraved by Verovio into SVG.
+using Clock = std::chrono::steady_clock;
+
+double millisecondsSince(Clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+}
+
+// Loads FILE: an SVG as it is, or a score engraved by Verovio into SVG. engraveMs is set to how
+// long Verovio took, for --bench.
 std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, const std::string& dataDir,
-                                          std::string& error) {
+                                          std::string& error, double& engraveMs) {
+    engraveMs = 0;
     if (isSvg) return SvgDocument::fromFile(path, error);
+    const auto start = Clock::now();
     const EngraveResult score = engraveScore(path, dataDir);
+    engraveMs = millisecondsSince(start);
     if (!score.error.empty()) {
         error = score.error;
         return nullptr;
+    }
+    if (const std::optional<std::string> dump = environmentVariable("STAVE_DUMP_SVG")) {
+        std::ofstream out(*dump, std::ios::binary);
+        out << score.svg;
+        if (out)
+            std::fprintf(stderr, "stave: saved Verovio's SVG to %s\n", dump->c_str());
+        else
+            std::fprintf(stderr, "stave: couldn't save Verovio's SVG to %s\n", dump->c_str());
     }
     auto doc = SvgDocument::fromData(score.svg, error);
     if (!doc) {
@@ -105,9 +129,45 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
     return doc;
 }
 
+// --bench: how long each stage takes, on a 1920x1080 screen with 20-pixel text rows.
+int bench(const SvgDocument& doc, const PagerOptions& opt, const std::optional<ScoreLayout>& layout, double engraveMs,
+          double loadMs) {
+    constexpr int kRuns = 50;
+    const PagerLayout screen{53, 1920, 1080};
+    View v = startView(doc, opt, screen, 20);
+    if (engraveMs > 0) std::printf("engrave   %8.1f ms  (Verovio)\n", engraveMs);
+    std::printf("load      %8.1f ms  (reading the SVG%s)\n", loadMs - engraveMs,
+                layout ? ", finding the bars and staves" : "");
+    if (layout) std::printf("          %zu bars, %zu staves\n", layout->barStarts.size(), layout->staves.size());
+
+    // Each run draws the next screen across, as paging through would, then starts over at the end.
+    std::vector<Canvas> frames;
+    double renderMs = 0;
+    for (int i = 0; i < kRuns; ++i) {
+        const auto start = Clock::now();
+        frames.push_back(doc.render(v.scale(), v.x(), v.y(), screen.imageW, screen.imageH));
+        renderMs += millisecondsSince(start);
+        if (!v.apply(Key::PageRight)) v.apply(Key::Home);
+    }
+    size_t bytes = 0;  // also keeps the compiler from skipping the work
+    auto time = [&](auto&& encode) {
+        const auto start = Clock::now();
+        for (const Canvas& c : frames) bytes += encode(c);
+        return millisecondsSince(start) / kRuns;
+    };
+    const RGB ink = kPaperColours.ink, paper = kPaperColours.paper;
+    std::printf("screen    %dx%d, average of %d:\n", screen.imageW, screen.imageH, kRuns);
+    std::printf("  draw    %8.2f ms\n", renderMs / kRuns);
+    std::printf("  sixel   %8.2f ms\n", time([&](const Canvas& c) { return encodeSixel(c, ink, paper, true).size(); }));
+    std::printf("  kitty   %8.2f ms\n",
+                time([&](const Canvas& c) { return encodeKitty(c, ink, paper, false, false).size(); }));
+    std::printf("  braille %8.2f ms\n", time([&](const Canvas& c) { return encodeBraille(c).size(); }));
+    return bytes == 0 ? 1 : 0;
+}
+
 int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
-    bool paperRequested = false;
+    bool paperRequested = false, benchRequested = false;
     std::optional<Output> forcedOutput;
     std::optional<std::string> file, dataDir, pngPath;
     std::optional<int> width, startBar, startStaff;
@@ -127,6 +187,8 @@ int run(int argc, char** argv) {
             infoRequested = true;
         } else if (arg == "--sixel" || arg == "--kitty" || arg == "--braille") {
             forcedOutput = arg == "--sixel" ? Output::Sixel : arg == "--kitty" ? Output::Kitty : Output::Braille;
+        } else if (arg == "--bench") {
+            benchRequested = true;
         } else if (arg == "--paper") {
             paperRequested = true;
         } else if (arg == "--print") {
@@ -163,8 +225,8 @@ int run(int argc, char** argv) {
     }
     if (int(testPatternRequested) + int(file.has_value()) + int(infoRequested) > 1)
         return usageError("use only one of FILE, --test-pattern and --terminal-info");
-    if ((width || printRequested || dataDir || pngPath) && !file)
-        return usageError("--width, --print, --png and --verovio-data only apply when showing a file");
+    if ((width || printRequested || dataDir || pngPath || benchRequested) && !file)
+        return usageError("--width, --print, --png, --bench and --verovio-data only apply when showing a file");
     if ((startBar || startStaff) && (!file || forceSvg || isSvgFile(*file)))
         return usageError("--bar and --staff only apply to scores");
     if (!testPatternRequested && !file && !infoRequested) {
@@ -175,9 +237,12 @@ int run(int argc, char** argv) {
     // Load before touching the terminal, so a bad file is reported plainly.
     std::unique_ptr<SvgDocument> doc;
     const bool isSvg = file && (forceSvg || isSvgFile(*file));
+    Clock::time_point loadStart;
+    double engraveMs = 0;
     if (file) {
         std::string error;
-        doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error);
+        loadStart = Clock::now();
+        doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error, engraveMs);
         if (!doc) {
             std::fprintf(stderr, "stave: %s\n", error.c_str());
             return 1;
@@ -210,6 +275,9 @@ int run(int argc, char** argv) {
             opt.startStaff = startStaff.value_or(1);
         }
     }
+
+    const double loadMs = doc ? millisecondsSince(loadStart) : 0;
+    if (benchRequested) return bench(*doc, opt, layout, engraveMs, loadMs);
 
     if (pngPath) {
         // The pager's first screen on a 1600x900 display with 20-pixel text rows.

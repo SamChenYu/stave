@@ -1,5 +1,6 @@
 #include "platform.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <iterator>
 #include <system_error>
@@ -31,5 +32,20 @@ std::string executableDir() {
     std::error_code ec;
     const auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
     return ec ? "" : p.parent_path().string();
+#endif
+}
+
+std::optional<std::string> environmentVariable(const char* name) {
+#if defined(_WIN32)
+    char* value = nullptr;
+    size_t size = 0;
+    if (_dupenv_s(&value, &size, name) != 0 || value == nullptr) return std::nullopt;
+    std::string result(value);
+    std::free(value);
+    return result;
+#else
+    const char* value = std::getenv(name);
+    if (!value) return std::nullopt;
+    return std::string(value);
 #endif
 }
