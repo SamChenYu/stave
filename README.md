@@ -1,6 +1,8 @@
 # stave
 
-a music notation renderer on the CLI!
+### **a music notation renderer on the CLI!**
+
+*ascii and unicode is too coarse to render good musical notation, therefore it gets rendered to an svg using `Verovio` before getting rasterized with `lunasvg` onto the terminal via sixel*
 
 ## Build
 
@@ -18,16 +20,24 @@ Needs a terminal that can show sixel graphics, such as Windows Terminal 1.22+, W
 iTerm2.
 
 ```
-stave --svg FILE             # draw an SVG as wide as the terminal
-stave --svg FILE --width 400 # ...or at another width (the height keeps the aspect ratio)
+stave --svg FILE             # show an SVG full screen, as wide as the terminal
+stave --svg FILE --width 400 # ...starting at another width
+stave --svg FILE --print     # print it inline instead, like cat
 stave --test-pattern         # a test image, to check that sixel works in this terminal
 stave --terminal-info        # what stave found out about this terminal
 ```
 
-stave asks the terminal for its size in pixels and its text and background colours, and draws in
-those colours on the terminal's own background, so images match the theme. Colours in the SVG
-are ignored: what's drawn is how much ink covers each pixel. If the terminal doesn't answer (or
-the output isn't a terminal), images are 800 pixels wide, in black on a white page.
+In a terminal, `--svg` opens a full-screen viewer; when the output isn't a terminal, it prints
+instead.
+
+| Key | Action |
+|---|---|
+| ← → ↑ ↓ / h l k j | move a tenth of the screen |
+| Shift+← → / H L | one screen sideways |
+| PgUp PgDn / Space | one screen up/down |
+| Home End / g G | start / end |
+| + - | zoom |
+| q / Esc / Ctrl+C | quit |
 
 ## Tests
 

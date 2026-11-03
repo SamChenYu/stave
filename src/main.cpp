@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
+#include <exception>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -10,6 +12,7 @@
 #include <utility>
 
 #include "encode.hpp"
+#include "pager.hpp"
 #include "svgimage.hpp"
 #include "terminal.hpp"
 #include "termprobe.hpp"
@@ -18,11 +21,12 @@
 namespace {
 
 const char* const kUsage =
-    "usage: stave --svg FILE [--width N]\n"
+    "usage: stave --svg FILE [--width N] [--print]\n"
     "       stave --test-pattern\n"
     "       stave --terminal-info\n"
-    "  --svg FILE       draw an SVG file in the terminal\n"
+    "  --svg FILE       show an SVG file, full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, q quits\n"
     "  --width N        how wide to draw it, in pixels (default: the terminal's width)\n"
+    "  --print          print it instead, like cat (always the case when output isn't a terminal)\n"
     "  --test-pattern   draw a test image, to check that the terminal can show sixel graphics\n"
     "  --terminal-info  show what stave found out about this terminal\n"
     "  --version        print the versions of stave and its libraries\n";
@@ -63,10 +67,8 @@ std::optional<int> parseInt(std::string_view s) {
     return v;
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
-    bool testPatternRequested = false, infoRequested = false;
+int run(int argc, char** argv) {
+    bool testPatternRequested = false, infoRequested = false, printRequested = false;
     std::optional<std::string> svgPath;
     std::optional<int> width;
     for (int i = 1; i < argc; ++i) {
@@ -82,6 +84,8 @@ int main(int argc, char** argv) {
             testPatternRequested = true;
         } else if (arg == "--terminal-info") {
             infoRequested = true;
+        } else if (arg == "--print") {
+            printRequested = true;
         } else if (arg == "--svg") {
             if (!hasValue) return usageError("--svg needs a file name");
             svgPath = argv[++i];
@@ -98,6 +102,7 @@ int main(int argc, char** argv) {
     if (int(testPatternRequested) + int(svgPath.has_value()) + int(infoRequested) > 1)
         return usageError("use only one of --svg, --test-pattern and --terminal-info");
     if (width && !svgPath) return usageError("--width only applies to --svg");
+    if (printRequested && !svgPath) return usageError("--print only applies to --svg");
     if (!testPatternRequested && !svgPath && !infoRequested) {
         std::fputs(kUsage, stdout);
         return 0;
@@ -108,6 +113,23 @@ int main(int argc, char** argv) {
     if (infoRequested) {
         printTerminalInfo(term);
         return 0;
+    }
+    const InkAndPaper colours = chooseColours(term);
+
+    if (svgPath && !printRequested && isInteractive()) {
+        std::string error;
+        const auto doc = SvgDocument::fromFile(*svgPath, error);
+        if (!doc) {
+            std::fprintf(stderr, "stave: %s\n", error.c_str());
+            return 1;
+        }
+        PagerOptions opt;
+        opt.name = std::filesystem::path(*svgPath).filename().string();
+        opt.ink = colours.ink;
+        opt.paper = colours.paper;
+        opt.startWidth = width.value_or(0);
+        if (runPager(*doc, term, opt)) return 0;
+        // Couldn't read keys after all: fall through and print instead.
     }
 
     std::optional<Canvas> canvas;
@@ -123,10 +145,21 @@ int main(int argc, char** argv) {
         canvas = testPattern();
     }
 
-    const InkAndPaper colours = chooseColours(term);
     if (!writeAll(encodeSixel(*canvas, colours.ink, colours.paper, colours.opaque) + "\n")) {
         std::fputs("stave: couldn't write to stdout\n", stderr);
         return 1;
     }
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // Catching here unwinds the stack, so the pager and console guards put the terminal back.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "stave: %s\n", e.what());
+        return 1;
+    }
 }

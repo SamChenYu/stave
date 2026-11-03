@@ -34,6 +34,7 @@ add_subdirectory(external/lunasvg EXCLUDE_FROM_ALL)
 add_library(stave_core STATIC
     src/encode.cpp
     src/keys.cpp
+    src/pager.cpp
     src/svgimage.cpp
     src/terminal.cpp
     src/termprobe.cpp

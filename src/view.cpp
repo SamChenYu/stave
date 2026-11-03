@@ -2,9 +2,9 @@
 
 #include <algorithm>
 
-View::View(double docW, double docH, int screenW, int screenH)
+View::View(double docW, double docH, int screenW, int screenH, double zoom)
     : docW_(std::max(docW, 1e-6)), docH_(std::max(docH, 0.0)), screenW_(std::max(1, screenW)),
-      screenH_(std::max(1, screenH)) {}
+      screenH_(std::max(1, screenH)), zoom_(std::clamp(zoom, kMinZoom, kMaxZoom)) {}
 
 double View::maxX() const { return std::max(0.0, imageW() - screenW_); }
 double View::maxY() const { return std::max(0.0, imageH() - screenH_); }

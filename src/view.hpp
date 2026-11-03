@@ -12,7 +12,7 @@ public:
     static constexpr double kLineFraction = 0.1;  // arrow keys move a tenth of the screen
     static constexpr double kPageFraction = 0.9;  // page keys move a screen, keeping a little in view
 
-    View(double docW, double docH, int screenW, int screenH);
+    View(double docW, double docH, int screenW, int screenH, double zoom = 1);
 
     // Applies one key. Returns true if what's on screen changed. Quit and unused keys do nothing.
     bool apply(Key);

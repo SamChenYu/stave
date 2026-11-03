@@ -83,6 +83,26 @@ RawInput::~RawInput() {
 
 bool RawInput::ok() const { return impl_->ok; }
 
+namespace {
+
+// Keys that arrive as bare key codes, if the console didn't turn them into escape sequences,
+// become the same sequences a VT terminal sends.
+const char* keyCodeSequence(WORD vk, bool shift) {
+    switch (vk) {
+        case VK_UP: return "\x1b[A";
+        case VK_DOWN: return "\x1b[B";
+        case VK_RIGHT: return shift ? "\x1b[1;2C" : "\x1b[C";
+        case VK_LEFT: return shift ? "\x1b[1;2D" : "\x1b[D";
+        case VK_PRIOR: return "\x1b[5~";
+        case VK_NEXT: return "\x1b[6~";
+        case VK_HOME: return "\x1b[H";
+        case VK_END: return "\x1b[F";
+        default: return nullptr;
+    }
+}
+
+}  // namespace
+
 bool RawInput::read(std::string& buf, int ms) {
     if (WaitForSingleObject(impl_->in, DWORD(std::max(0, ms))) != WAIT_OBJECT_0) return false;
     INPUT_RECORD recs[128];
@@ -91,8 +111,15 @@ bool RawInput::read(std::string& buf, int ms) {
     for (DWORD i = 0; i < n; ++i) {
         if (recs[i].EventType != KEY_EVENT) continue;  // focus, mouse and resize events
         const KEY_EVENT_RECORD& k = recs[i].Event.KeyEvent;
+        if (!k.bKeyDown) continue;
+        const WORD repeat = std::max<WORD>(1, k.wRepeatCount);
         const WCHAR ch = k.uChar.UnicodeChar;
-        if (k.bKeyDown && ch != 0 && ch < 128) buf.append(std::max<WORD>(1, k.wRepeatCount), char(ch));
+        if (ch != 0 && ch < 128) {
+            buf.append(repeat, char(ch));
+        } else if (ch == 0) {
+            if (const char* seq = keyCodeSequence(k.wVirtualKeyCode, (k.dwControlKeyState & SHIFT_PRESSED) != 0))
+                for (WORD r = 0; r < repeat; ++r) buf += seq;
+        }
     }
     return true;
 }

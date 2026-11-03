@@ -13,6 +13,7 @@ add_executable(stave_tests
     support/sixel_decoder.cpp
     golden_test.cpp
     keys_test.cpp
+    pager_test.cpp
     sixel_test.cpp
     svg_test.cpp
     termprobe_test.cpp
