@@ -33,10 +33,12 @@ add_subdirectory(external/lunasvg EXCLUDE_FROM_ALL)
 # ---- stave_core: everything except main(), shared by the program and the tests
 add_library(stave_core STATIC
     src/encode.cpp
+    src/keys.cpp
     src/svgimage.cpp
     src/terminal.cpp
     src/termprobe.cpp
-    src/testpattern.cpp)
+    src/testpattern.cpp
+    src/view.cpp)
 target_include_directories(stave_core PUBLIC src)
 target_link_libraries(stave_core PUBLIC lunasvg::lunasvg)
 stave_warnings(stave_core)
