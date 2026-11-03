@@ -143,7 +143,8 @@ const char* outputName(Output o) {
 }
 
 Output chooseOutput(const TerminalInfo& t) {
-    if (t.kitty) return Output::Kitty;
+    // Kitty is disabled for now: iTerm2's kitty support misbehaves, so we never pick it
+    // automatically. The implementation is kept and can still be forced with --kitty.
     if (t.sixel || !t.answered) return Output::Sixel;
     return Output::Braille;
 }

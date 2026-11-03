@@ -68,6 +68,7 @@ enum class Output {
 };
 const char* outputName(Output);
 
-// Kitty if the terminal can show it (its soft edges blend with any background), then sixel, then
-// braille. A terminal that didn't reply at all (or isn't a terminal, like a file) gets sixel.
+// Sixel if the terminal can show it, otherwise braille. A terminal that didn't reply at all (or
+// isn't a terminal, like a file) gets sixel. Kitty is disabled for now (it misbehaves under iTerm2),
+// so it is never chosen automatically, though --kitty can still force it.
 Output chooseOutput(const TerminalInfo&);

@@ -84,15 +84,16 @@ TEST_SUITE("graphics support") {
         CHECK(!parseTerminalReplies("\x1b[?62c").kitty);
     }
 
-    TEST_CASE("the best output: kitty, then sixel, then braille") {
+    TEST_CASE("the best output: sixel, then braille (kitty is disabled for now)") {
         TerminalInfo t;
         t.answered = true;
+        // Kitty is never chosen automatically, even when the terminal supports it.
         t.kitty = t.sixel = true;
-        CHECK(chooseOutput(t) == Output::Kitty);
-        t.kitty = false;
         CHECK(chooseOutput(t) == Output::Sixel);
         t.sixel = false;
         CHECK(chooseOutput(t) == Output::Braille);
+        t.sixel = true;
+        CHECK(chooseOutput(t) == Output::Sixel);
     }
 
     TEST_CASE("no answer at all (or not a terminal) keeps sixel") {
