@@ -29,8 +29,8 @@ std::string statusLine(const std::string& name, const View&, int width);
 // staffSpaceUnits is the image's units per staff space; rowPx is one text row in pixels.
 double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout&, int rowPx);
 
-// The View's stops for a score: each bar's start, each staff's band, and a margin of 0.8 staff
-// spaces kept to the left of a bar, so its barline shows.
+// The View's stops for a score: each bar's start and each staff's band. Moving to a bar leaves room
+// to its left for the pinned column (see prepareForPaging) and 0.8 staff spaces, so its barline shows.
 View::Stops scoreStops(const ScoreLayout&, double docHeight);
 
 struct PagerOptions {

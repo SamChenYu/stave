@@ -102,6 +102,33 @@ std::vector<lunasvg::Box> staffLines(const lunasvg::Element& staff) {
     return lines;
 }
 
+// Calls fn(x) with where every glyph (<use>) inside e is placed, in document units. A music
+// font's glyph starts at its origin, so that's its left edge. (lunasvg's boxes for these glyphs
+// aren't reliable enough here.)
+template <class F>
+void forEachGlyph(const lunasvg::Element& e, F&& fn) {
+    for (const lunasvg::Element& c : childElements(e)) {
+        if (c.hasAttribute("xlink:href") || c.hasAttribute("href"))
+            fn(double(c.getGlobalMatrix().e));
+        else
+            forEachGlyph(c, fn);
+    }
+}
+
+// Where the pinned column ends for one staff of the first bar: just past its last key-signature
+// accidental (or its clef, without one), but never into the time signature. -1 if it has neither.
+double staffPinRight(const lunasvg::Element& staff, double space) {
+    double meter = 1e300, accid = -1, clef = -1;
+    for (const lunasvg::Element& c : childElements(staff)) {
+        if (hasClass(c, "meterSig")) forEachGlyph(c, [&](double x) { meter = std::min(meter, x); });
+        if (hasClass(c, "keySig")) forEachGlyph(c, [&](double x) { accid = std::max(accid, x); });
+        if (hasClass(c, "clef")) forEachGlyph(c, [&](double x) { clef = std::max(clef, x); });
+    }
+    double pin = accid >= 0 ? accid + 1.05 * space : clef >= 0 ? clef + 2.9 * space : -1;
+    if (meter < 1e300) pin = pin >= 0 ? std::min(pin, meter - 0.3 * space) : meter - 0.3 * space;
+    return pin;
+}
+
 }  // namespace
 
 std::optional<ScoreLayout> findScoreLayout(const SvgDocument& doc) {
@@ -139,5 +166,30 @@ std::optional<ScoreLayout> findScoreLayout(const SvgDocument& doc) {
         }
     }
     if (layout.barStarts.empty()) return std::nullopt;
+
+    // The pinned column: as wide as the widest staff's clef and key signature need.
+    layout.pinRight = layout.barStarts.front() + 3 * layout.staffSpace;  // if no staff says otherwise
+    bool found = false;
+    for (const lunasvg::Element& staff : childElements(measures.front())) {
+        if (!hasClass(staff, "staff")) continue;
+        const double pin = staffPinRight(staff, layout.staffSpace);
+        if (pin < 0) continue;
+        layout.pinRight = found ? std::max(layout.pinRight, pin) : pin;
+        found = true;
+    }
     return layout;
+}
+
+void prepareForPaging(SvgDocument& doc, const ScoreLayout& layout) {
+    doc.splitInto(".system");
+    // The pinned column is drawn from the system's own pieces (labels, brace, opening barline) and
+    // the first bar, which holds the opening clefs and key signatures.
+    std::vector<size_t> column;
+    bool firstBar = true;
+    for (size_t i = 0; i < doc.pieceCount(); ++i) {
+        const bool isBar = doc.pieceClass(i).rfind("measure", 0) == 0;
+        if (!isBar || firstBar) column.push_back(i);
+        if (isBar) firstBar = false;
+    }
+    doc.pinColumn(layout.pinRight, std::move(column));
 }

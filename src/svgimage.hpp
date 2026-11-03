@@ -8,6 +8,7 @@
 #include "canvas.hpp"
 
 namespace lunasvg {
+class Bitmap;
 class Document;
 }
 
@@ -44,6 +45,16 @@ public:
     // none, render() goes on drawing everything.
     size_t splitInto(const std::string& selector);
 
+    size_t pieceCount() const;
+    std::string pieceClass(size_t i) const;  // the class attribute of piece i
+
+    // Keeps the first `width` units of the document at the left edge while the rest scrolls
+    // sideways, drawn from just the given pieces (from splitInto). When render() is asked for a
+    // window that doesn't start at the left edge, its left part shows that column, and the rest
+    // shows the document from where the column would end: at x = 0, the two meet seamlessly and
+    // the picture is exactly the document. Scrolling still runs to the same end.
+    void pinColumn(double width, std::vector<size_t> pieces);
+
     // The parsed document itself, for reading its structure (as score.cpp does).
     const lunasvg::Document& lunasvgDocument() const { return *doc_; }
 
@@ -54,6 +65,13 @@ private:
     std::unique_ptr<lunasvg::Document> doc_;
     double width_ = 0, height_ = 0;
     std::vector<Piece> pieces_;
+    double pinWidth_ = 0;              // document units; 0: no pinned column
+    std::vector<size_t> pinPieces_;    // indices into pieces_
+
+    // Draws the pieces near the window (all of them, or those in `only`) into bmp, whose top-left
+    // corner is at (x, y) in pixels of the document drawn at `scale`.
+    void drawPieces(lunasvg::Bitmap& bmp, double scale, double x, double y,
+                    const std::vector<size_t>* only) const;
 };
 
 struct SvgRenderResult {

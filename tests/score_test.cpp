@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <optional>
 #include <string>
 #include <vector>
@@ -121,6 +122,50 @@ TEST_SUITE("engraving") {
         REQUIRE(layout);
         CHECK(layout->barStarts.size() == 4);
         CHECK(layout->staves.size() == 1);
+    }
+
+    TEST_CASE("the pinned column ends after the clefs and key signatures, inside the first bar") {
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        std::string error;
+        const auto doc = SvgDocument::fromData(r.svg, error);
+        REQUIRE(doc);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        // A clef and two sharps take more than 4 staff spaces; the time signature comes before bar 2.
+        CHECK(layout->pinRight > layout->barStarts[0] + 4 * layout->staffSpace);
+        CHECK(layout->pinRight < layout->barStarts[1]);
+    }
+
+    TEST_CASE("with a pinned column, the first screen is exactly the document, and scrolled ones join up") {
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        std::string error;
+        const auto plain = SvgDocument::fromData(r.svg, error);
+        const auto pinned = SvgDocument::fromData(r.svg, error);
+        REQUIRE(plain);
+        REQUIRE(pinned);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*pinned);
+        REQUIRE(layout);
+        prepareForPaging(*pinned, *layout);
+
+        auto differing = [](const Canvas& a, const Canvas& b, int ax, int bx, int w) {
+            int n = 0;
+            for (int y = 0; y < a.h; ++y)
+                for (int x = 0; x < w; ++x) n += a.at(ax + x, y) != b.at(bx + x, y);
+            return n;
+        };
+        const double scale = 1.5;
+        const int w = 400, h = 300, pin = int(std::round(layout->pinRight * scale));
+        // Not scrolled: identical, column and all.
+        CHECK(differing(plain->render(scale, 0, 20, w, h), pinned->render(scale, 0, 20, w, h), 0, 0, w) == 0);
+        // Scrolled 500 pixels: right of the column is the document from 500 + the column's width on.
+        const Canvas a = pinned->render(scale, 500, 20, w, h);
+        const Canvas b = plain->render(scale, 500 + pin, 20, w, h);
+        CHECK(differing(a, b, pin, 0, w - pin) == 0);
+        // ...and the column itself is the start of the system, as at the very left.
+        const Canvas start = plain->render(scale, 0, 20, w, h);
+        CHECK(differing(a, start, 0, 0, pin) == 0);
     }
 
     TEST_CASE("an SVG that isn't a Verovio score has no layout") {

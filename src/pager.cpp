@@ -104,7 +104,7 @@ View::Stops scoreStops(const ScoreLayout& layout, double docHeight) {
     s.barsEnd = layout.end;
     for (const ScoreLayout::Staff& staff : layout.staves) s.staves.push_back(staff.bandTop);
     s.stavesEnd = docHeight;
-    s.margin = 0.8 * layout.staffSpace;
+    s.margin = layout.pinRight + 0.8 * layout.staffSpace;
     return s;
 }
 

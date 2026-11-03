@@ -96,7 +96,6 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
         error = path + ": Verovio's drawing couldn't be read: " + error;
         return nullptr;
     }
-    doc->splitInto(".system");  // draw only the bars on screen, so long scores scroll smoothly
     return doc;
 }
 
@@ -172,6 +171,10 @@ int run(int argc, char** argv) {
     std::optional<ScoreLayout> layout;
     if (doc && !isSvg) {
         layout = findScoreLayout(*doc);
+        if (layout)
+            prepareForPaging(*doc, *layout);
+        else
+            doc->splitInto(".system");  // still draw only what's on screen, if it's laid out in systems
         const int bars = layout ? int(layout->barStarts.size()) : 0, staves = layout ? int(layout->staves.size()) : 0;
         if (layout && (startBar.value_or(1) > bars || startStaff.value_or(1) > staves)) {
             std::fprintf(stderr, "stave: %s has %d bar%s and %d stave%s\n", file->c_str(), bars, bars == 1 ? "" : "s",

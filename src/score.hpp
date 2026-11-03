@@ -32,8 +32,17 @@ struct ScoreLayout {
     double end = 0;                 // where the last bar's staff lines end
     std::vector<Staff> staves;      // top to bottom
     double staffSpace = kStaffSpaceUnits;
+    // Where the column that stays put while the bars scroll ends: just after the opening clefs and
+    // key signatures, before the time signature. Everything left of it (labels, brace, clefs, keys)
+    // is drawn from the start of the system.
+    double pinRight = 0;
 };
 
 // Reads the layout from Verovio's SVG: each staff is a <g class="staff"> whose first <path>s are its
 // lines, inside a <g class="measure"> per bar. Returns nothing if the document isn't laid out that way.
 std::optional<ScoreLayout> findScoreLayout(const SvgDocument&);
+
+// Gets an engraved score ready for the pager: draws only the bars near the screen, so long scores
+// scroll smoothly, and keeps the opening clefs and key signatures (up to layout.pinRight) at the
+// left edge while the bars scroll past.
+void prepareForPaging(SvgDocument&, const ScoreLayout&);
