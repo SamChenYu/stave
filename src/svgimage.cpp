@@ -9,6 +9,12 @@
 #include <fstream>
 #include <iterator>
 
+struct SvgDocument::Piece {
+    lunasvg::Element element;
+    lunasvg::Matrix parent;  // the transforms from the document down to the element's parent
+    double x0, y0, x1, y1;   // where it is, in document units
+};
+
 SvgDocument::SvgDocument(std::unique_ptr<lunasvg::Document> doc)
     : doc_(std::move(doc)), width_(doc_->width()), height_(doc_->height()) {}
 
@@ -47,7 +53,19 @@ Canvas SvgDocument::render(double scale, double x, double y, int w, int h) const
     if (bmp.isNull()) return c;  // out of memory: leave it blank rather than fail mid-scroll
     bmp.clear(0);                // fully transparent
     const auto s = float(scale);
-    doc_->render(bmp, lunasvg::Matrix(s, 0, 0, s, -float(std::round(x)), -float(std::round(y))));
+    const float rx = float(std::round(x)), ry = float(std::round(y));
+    const lunasvg::Matrix frame(s, 0, 0, s, -rx, -ry);
+    if (pieces_.empty()) {
+        doc_->render(bmp, frame);
+    } else {
+        // The window in document units, widened a little: a piece's box covers its shapes'
+        // geometry, and strokes and soft edges can reach slightly past it.
+        const double pad = 4 / scale;
+        const double wx0 = rx / scale - pad, wx1 = (rx + w) / scale + pad;
+        const double wy0 = ry / scale - pad, wy1 = (ry + h) / scale + pad;
+        for (const Piece& p : pieces_)
+            if (p.x1 >= wx0 && p.x0 <= wx1 && p.y1 >= wy0 && p.y0 <= wy1) p.element.render(bmp, frame * p.parent);
+    }
 
     // Pixels are 32-bit ARGB in native byte order; alpha (the top byte) is the coverage.
     const uint8_t* data = bmp.data();
@@ -60,6 +78,53 @@ Canvas SvgDocument::render(double scale, double x, double y, int w, int h) const
         }
     }
     return c;
+}
+
+namespace {
+
+struct Extent {
+    double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
+    bool empty() const { return x0 > x1; }
+    void add(const lunasvg::Box& b) {
+        x0 = std::min(x0, double(b.x));
+        y0 = std::min(y0, double(b.y));
+        x1 = std::max(x1, double(b.x + b.w));
+        y1 = std::max(y1, double(b.y + b.h));
+    }
+};
+
+// Grows `ext` to cover what e draws, in document units. lunasvg's own box for a group counts its
+// empty children too, as points at their origin; Verovio has many (for dots, articulations and
+// the like) whose origin is the page's corner, which would stretch each bar's box back to the start
+// of the score. So this looks at the shapes themselves (elements with no element children) and
+// skips the ones that cover nothing. A staff line, which has width but no height, still counts.
+void addDrawnExtent(const lunasvg::Element& e, Extent& ext) {
+    bool hasChildElements = false;
+    for (const lunasvg::Node& node : e.children()) {
+        if (!node.isElement()) continue;
+        hasChildElements = true;
+        addDrawnExtent(node.toElement(), ext);
+    }
+    if (hasChildElements) return;
+    const lunasvg::Box b = e.getGlobalBoundingBox();
+    if (b.w > 0 || b.h > 0) ext.add(b);
+}
+
+}  // namespace
+
+size_t SvgDocument::splitInto(const std::string& selector) {
+    pieces_.clear();
+    for (const lunasvg::Element& container : doc_->querySelectorAll(selector)) {
+        for (const lunasvg::Node& node : container.children()) {
+            if (!node.isElement()) continue;
+            const lunasvg::Element e = node.toElement();
+            Extent ext;
+            addDrawnExtent(e, ext);
+            if (ext.empty()) continue;  // draws nothing (Verovio's milestone markers)
+            pieces_.push_back({e, e.parentElement().getGlobalMatrix(), ext.x0, ext.y0, ext.x1, ext.y1});
+        }
+    }
+    return pieces_.size();
 }
 
 namespace {

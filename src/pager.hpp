@@ -16,8 +16,9 @@ struct PagerLayout {
 PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH);
 
 // The status line, cut or padded to exactly `width` characters: the name, where the view is, the
-// zoom, and the keys. Where the view is: "left", "right" or a percentage across, if the image is
-// wider than the screen; "top", "bottom" or a percentage down, if it's taller; "all" if neither.
+// zoom (100% being the size it opened at), and the keys. Where the view is: "left", "right" or "N%
+// across", if the image is wider than the screen; "top", "bottom" or "N% down", if it's taller;
+// "all" if neither.
 std::string statusLine(const std::string& name, const View&, int width);
 
 // The starting zoom for a score, which is one long system: fitting its width would make it tiny.

@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "canvas.hpp"
 
@@ -35,11 +36,21 @@ public:
     // moves the picture exactly, without its edges shimmering. Anywhere outside the image is blank.
     Canvas render(double scale, double x, double y, int w, int h) const;
 
+    // Speeds up drawing small windows of a big document. The children of every element matching
+    // the CSS selector become pieces, and render() then draws only the pieces near the window,
+    // instead of the whole document. Anything outside those elements is no longer drawn, so the
+    // selector must cover all that's visible: for Verovio's scores, ".system" (its children are the
+    // bars, the brace and the system's opening barline). Returns how many pieces there are; with
+    // none, render() goes on drawing everything.
+    size_t splitInto(const std::string& selector);
+
 private:
+    struct Piece;
     explicit SvgDocument(std::unique_ptr<lunasvg::Document>);
 
     std::unique_ptr<lunasvg::Document> doc_;
     double width_ = 0, height_ = 0;
+    std::vector<Piece> pieces_;
 };
 
 struct SvgRenderResult {

@@ -53,6 +53,7 @@ std::unique_ptr<SvgDocument> engraved(const std::string& name) {
     std::string error;
     auto doc = SvgDocument::fromData(r.svg, error);
     REQUIRE_MESSAGE(doc, error);
+    REQUIRE(doc->splitInto(".system") > 0);  // as stave does: draw only the bars near the window
     return doc;
 }
 

@@ -39,7 +39,7 @@ TEST_SUITE("status line") {
         View v(100, 200, 400, 300);
         CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  top  zoom 100%", 0) == 0);
         v.apply(Key::PageDown);  // 270 of 500
-        CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  54%  zoom 100%", 0) == 0);
+        CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  54% down  zoom 100%", 0) == 0);
         v.apply(Key::End);
         CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  bottom  zoom 100%", 0) == 0);
         const View fits(100, 50, 400, 300);  // 400 x 200 pixels: nothing to scroll
@@ -48,16 +48,23 @@ TEST_SUITE("status line") {
 
     TEST_CASE("says where the view is across a wide image, like a score") {
         View v(1000, 100, 400, 300, 2);  // 800 x 80 pixels: 400 to the right of the screen
-        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  left  zoom 200%", 0) == 0);
+        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  left  zoom 100%", 0) == 0);
         v.apply(Key::PageRight);  // 360 of 400
-        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  90% across  zoom 200%", 0) == 0);
+        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  90% across  zoom 100%", 0) == 0);
         v.apply(Key::End);
-        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  right  zoom 200%", 0) == 0);
+        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  right  zoom 100%", 0) == 0);
     }
 
     TEST_CASE("says both directions when the image is bigger both ways") {
         const View v(100, 100, 400, 300, 2);  // 800 x 800 pixels
-        CHECK(statusLine("big.svg", v, 200).rfind(" big.svg  left, top  zoom 200%", 0) == 0);
+        CHECK(statusLine("big.svg", v, 200).rfind(" big.svg  left, top  zoom 100%", 0) == 0);
+    }
+
+    TEST_CASE("gives the zoom relative to where it started") {
+        View v(1000, 100, 400, 300, 12);  // a long score, opened at 12 times fitting the width
+        CHECK(statusLine("score.mxl", v, 200).find("zoom 100%") != std::string::npos);
+        v.apply(Key::ZoomIn);
+        CHECK(statusLine("score.mxl", v, 200).find("zoom 125%") != std::string::npos);
     }
 
     TEST_CASE("is padded or cut to exactly the width") {

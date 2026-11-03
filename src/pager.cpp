@@ -64,9 +64,14 @@ std::string position(double at, double max, const char* start, const char* end, 
 
 std::string statusLine(const std::string& name, const View& v, int width) {
     const std::string across = position(v.x(), v.maxX(), "left", "right", " across");
-    const std::string down = position(v.y(), v.maxY(), "top", "bottom", "");
-    std::string where = across.empty() && down.empty() ? "all" : across + (across.empty() || down.empty() ? "" : ", ") + down;
-    std::string s = " " + name + "  " + where + "  zoom " + std::to_string(std::lround(v.zoom() * 100)) +
+    const std::string down = position(v.y(), v.maxY(), "top", "bottom", " down");
+    std::string where;
+    if (across.empty() && down.empty())
+        where = "all";
+    else
+        where = across + (across.empty() || down.empty() ? "" : ", ") + down;
+    const long zoomPercent = std::lround(v.zoom() / v.startZoom() * 100);
+    std::string s = " " + name + "  " + where + "  zoom " + std::to_string(zoomPercent) +
                     "%    arrows/hjkl move  PgUp/PgDn page  Home/End  +/- zoom  q quit";
     s.resize(size_t(std::max(0, width)), ' ');
     return s;

@@ -26,6 +26,7 @@ public:
 
     double scale() const { return zoom_ * screenW_ / docW_; }  // pixels per image unit
     double zoom() const { return zoom_; }
+    double startZoom() const { return startZoom_; }
     double minZoom() const { return minZoom_; }
     double maxZoom() const { return maxZoom_; }
     double x() const { return x_; }
@@ -43,6 +44,6 @@ private:
 
     double docW_, docH_;
     int screenW_, screenH_;
-    double minZoom_, maxZoom_;
+    double startZoom_, minZoom_, maxZoom_;
     double zoom_ = 1, x_ = 0, y_ = 0;
 };

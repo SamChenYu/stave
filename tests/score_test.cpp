@@ -52,6 +52,41 @@ TEST_SUITE("engraving") {
             CHECK((lines[i] - lines[i - 1]) / scale == doctest::Approx(kStaffSpaceUnits).epsilon(0.05));
     }
 
+    TEST_CASE("drawing only the bars near the window gives exactly the same pixels as drawing it all") {
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        std::string error;
+        const auto whole = SvgDocument::fromData(r.svg, error);
+        const auto split = SvgDocument::fromData(r.svg, error);
+        REQUIRE(whole);
+        REQUIRE(split);
+        CHECK(split->splitInto(".system") >= 5);  // opening barline, brace, three bars
+        struct Window {
+            double scale, x, y;
+            int w, h;
+        };
+        for (const Window win : {Window{0.75, 0, 0, 300, 200}, Window{0.75, 230, 40, 150, 120},
+                                 Window{2, 900, 100, 400, 300}, Window{2, 1500, 0, 300, 600},
+                                 Window{0.3, 0, 0, 400, 100}}) {
+            CAPTURE(win.scale);
+            CAPTURE(win.x);
+            const Canvas a = whole->render(win.scale, win.x, win.y, win.w, win.h);
+            const Canvas b = split->render(win.scale, win.x, win.y, win.w, win.h);
+            int differ = 0;
+            for (size_t i = 0; i < a.px.size(); ++i) differ += a.px[i] != b.px[i];
+            CHECK(differ == 0);
+        }
+    }
+
+    TEST_CASE("a document with nothing matching the selector is drawn whole as before") {
+        std::string error;
+        const auto doc = SvgDocument::fromFile(testData("staff-note.svg"), error);
+        REQUIRE(doc);
+        CHECK(doc->splitInto(".system") == 0);
+        const Canvas c = doc->render(1, 0, 0, 200, 80);
+        CHECK(c.at(100, 20) == 255);  // a staff line
+    }
+
     TEST_CASE("a missing file is an error that names it") {
         const EngraveResult r = engraveScore("no/such/score.musicxml", defaultVerovioDataDir());
         CHECK(r.svg.empty());

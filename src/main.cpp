@@ -91,7 +91,11 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
         return nullptr;
     }
     auto doc = SvgDocument::fromData(score.svg, error);
-    if (!doc) error = path + ": Verovio's drawing couldn't be read: " + error;
+    if (!doc) {
+        error = path + ": Verovio's drawing couldn't be read: " + error;
+        return nullptr;
+    }
+    doc->splitInto(".system");  // draw only the bars on screen, so long scores scroll smoothly
     return doc;
 }
 
