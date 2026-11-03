@@ -23,3 +23,6 @@ std::string encodeKitty(const Canvas&, RGB ink, RGB paper, bool opaque, bool mov
 // dots are drawn in the terminal's own text colour.
 constexpr int kBrailleThreshold = 40;
 std::vector<std::string> encodeBraille(const Canvas&);
+
+// Saves a coverage canvas as a PNG, each pixel blended from paper to ink. False if it can't.
+bool writePng(const Canvas&, RGB ink, RGB paper, const std::string& path);

@@ -1,7 +1,10 @@
 #include "encode.hpp"
 
+#include <lunasvg.h>
+
 #include <algorithm>
 #include <charconv>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -175,4 +178,18 @@ std::vector<std::string> encodeBraille(const Canvas& c) {
         rows.push_back(std::move(row));
     }
     return rows;
+}
+
+bool writePng(const Canvas& c, RGB ink, RGB paper, const std::string& path) {
+    lunasvg::Bitmap bmp(c.w, c.h);  // 32-bit ARGB in native byte order; opaque, so not premultiplied
+    if (bmp.isNull()) return false;
+    uint8_t* data = bmp.data();
+    for (int y = 0; y < c.h; ++y) {
+        for (int x = 0; x < c.w; ++x) {
+            const RGB p = shade(ink, paper, c.at(x, y));
+            const uint32_t argb = 0xFF000000u | uint32_t(p.r) << 16 | uint32_t(p.g) << 8 | p.b;
+            std::memcpy(data + size_t(y) * bmp.stride() + size_t(x) * 4, &argb, 4);
+        }
+    }
+    return bmp.writeToPng(path);
 }

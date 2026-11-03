@@ -35,6 +35,7 @@ const char* const kUsage =
     "  --bar N, --staff N  for a score: start at this bar and staff (counting from 1)\n"
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
+    "  --png OUT.png    save the first screen (1600x900, dark ink on a cream page) instead\n"
     "  --print          print it instead, as wide as the terminal (always the case when output isn't a\n"
     "                   terminal)\n"
     "  --verovio-data DIR  where Verovio's music fonts are (default: verovio-data next to stave)\n"
@@ -108,7 +109,7 @@ int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
     bool paperRequested = false;
     std::optional<Output> forcedOutput;
-    std::optional<std::string> file, dataDir;
+    std::optional<std::string> file, dataDir, pngPath;
     std::optional<int> width, startBar, startStaff;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -135,6 +136,9 @@ int run(int argc, char** argv) {
             if (file) return usageError("give only one file");
             file = argv[++i];
             forceSvg = true;
+        } else if (arg == "--png") {
+            if (!hasValue) return usageError("--png needs a file name to save to");
+            pngPath = argv[++i];
         } else if (arg == "--verovio-data") {
             if (!hasValue) return usageError("--verovio-data needs a folder");
             dataDir = argv[++i];
@@ -159,8 +163,8 @@ int run(int argc, char** argv) {
     }
     if (int(testPatternRequested) + int(file.has_value()) + int(infoRequested) > 1)
         return usageError("use only one of FILE, --test-pattern and --terminal-info");
-    if ((width || printRequested || dataDir) && !file)
-        return usageError("--width, --print and --verovio-data only apply when showing a file");
+    if ((width || printRequested || dataDir || pngPath) && !file)
+        return usageError("--width, --print, --png and --verovio-data only apply when showing a file");
     if ((startBar || startStaff) && (!file || forceSvg || isSvgFile(*file)))
         return usageError("--bar and --staff only apply to scores");
     if (!testPatternRequested && !file && !infoRequested) {
@@ -194,6 +198,32 @@ int run(int argc, char** argv) {
         }
     }
 
+    // What the pager needs to know about the file. The terminal-dependent parts come later.
+    PagerOptions opt;
+    if (doc) {
+        opt.name = std::filesystem::path(*file).filename().string();
+        opt.startWidth = width.value_or(0);
+        if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
+        if (layout) {
+            opt.stops = scoreStops(*layout, doc->height());
+            opt.startBar = startBar.value_or(1);
+            opt.startStaff = startStaff.value_or(1);
+        }
+    }
+
+    if (pngPath) {
+        // The pager's first screen on a 1600x900 display with 20-pixel text rows.
+        const PagerLayout screen{45, 1600, 900};
+        const View v = startView(*doc, opt, screen, 20);
+        const Canvas c = doc->render(v.scale(), v.x(), v.y(), screen.imageW, screen.imageH);
+        if (!writePng(c, kPaperColours.ink, kPaperColours.paper, *pngPath)) {
+            std::fprintf(stderr, "stave: couldn't write %s\n", pngPath->c_str());
+            return 1;
+        }
+        std::printf("wrote %s (%dx%d)\n", pngPath->c_str(), c.w, c.h);
+        return 0;
+    }
+
     ConsoleSetup console;
     const TerminalInfo term = probeTerminal();
     if (infoRequested) {
@@ -204,19 +234,10 @@ int run(int argc, char** argv) {
     const Output output = forcedOutput.value_or(chooseOutput(term));
 
     if (doc && !printRequested && isInteractive()) {
-        PagerOptions opt;
-        opt.name = std::filesystem::path(*file).filename().string();
         opt.output = output;
         opt.ink = colours.ink;
         opt.paper = colours.paper;
         opt.transparent = !colours.opaque;
-        opt.startWidth = width.value_or(0);
-        if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
-        if (layout) {
-            opt.stops = scoreStops(*layout, doc->height());
-            opt.startBar = startBar.value_or(1);
-            opt.startStaff = startStaff.value_or(1);
-        }
         if (runPager(*doc, term, opt)) return 0;
         // Couldn't read keys after all: fall through and print instead.
     }
