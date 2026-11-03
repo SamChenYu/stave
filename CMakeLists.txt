@@ -30,6 +30,8 @@ endif()
 set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/lunasvg EXCLUDE_FROM_ALL)
 
+include(cmake/verovio.cmake)
+
 # ---- stave_core: everything except main(), shared by the program and the tests
 add_library(stave_core STATIC
     src/encode.cpp
@@ -47,8 +49,9 @@ stave_warnings(stave_core)
 # ---- stave
 add_executable(stave src/main.cpp)
 target_compile_definitions(stave PRIVATE STAVE_VERSION="${PROJECT_VERSION}")
-target_link_libraries(stave PRIVATE stave_core)
+target_link_libraries(stave PRIVATE stave_core verovio)
 stave_warnings(stave)
+stave_copy_verovio_data(stave)
 
 # ---- tests
 if(STAVE_BUILD_TESTS)

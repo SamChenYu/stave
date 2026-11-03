@@ -1,4 +1,5 @@
 #include <lunasvg.h>
+#include <toolkit.h>  // Verovio
 
 #include <algorithm>
 #include <charconv>
@@ -75,7 +76,8 @@ int run(int argc, char** argv) {
         const std::string_view arg = argv[i];
         const bool hasValue = i + 1 < argc;
         if (arg == "--version") {
-            std::printf("stave %s\nlunasvg %s\n", STAVE_VERSION, lunasvg_version_string());
+            std::printf("stave %s\nlunasvg %s\nverovio %s\n", STAVE_VERSION, lunasvg_version_string(),
+                        vrv::Toolkit(/*initFont=*/false).GetVersion().c_str());
             return 0;
         } else if (arg == "--help" || arg == "-h") {
             std::fputs(kUsage, stdout);

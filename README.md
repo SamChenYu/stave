@@ -50,6 +50,6 @@ ctest --test-dir build -C Release --output-on-failure
 | Library | Version | Used for | Licence |
 |---|---|---|---|
 | [lunasvg](https://github.com/sammycage/lunasvg) | 3.5.0 | rendering SVG to pixels | MIT |
-| [Verovio](https://github.com/rism-digital/verovio) | 6.4.0 | music engraving (not wired up yet) | LGPL-3.0 |
+| [Verovio](https://github.com/rism-digital/verovio) | 6.4.0 | music engraving (linked statically for now) | LGPL-3.0 |
 | [doctest](https://github.com/doctest/doctest) | 2.5.3 | unit tests (test builds only) | MIT |
 
