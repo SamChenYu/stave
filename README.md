@@ -1,5 +1,10 @@
 # stave
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
+[![Build: CMake](https://img.shields.io/badge/build-CMake-064F8C.svg?logo=cmake&logoColor=white)](https://cmake.org/)
+[![Requires: Git](https://img.shields.io/badge/requires-Git-F05032.svg?logo=git&logoColor=white)](https://git-scm.com/)
+
 ### **a music notation renderer on the CLI!**
 
 *ascii and unicode is too coarse to render good musical notation, therefore it gets rendered to an svg using `Verovio` before getting rasterized with `lunasvg` onto the terminal via sixel*
@@ -50,9 +55,9 @@ ctest --test-dir build -C Release --output-on-failure
 
 ## Dependencies
 
-| Library | Version | Used for | Licence |
-|---|---|---|---|
-| [lunasvg](https://github.com/sammycage/lunasvg) | 3.5.0 | rendering SVG to pixels | MIT |
-| [Verovio](https://github.com/rism-digital/verovio) | 6.4.0 | music engraving (linked statically for now) | LGPL-3.0 |
-| [doctest](https://github.com/doctest/doctest) | 2.5.3 | unit tests (test builds only) | MIT |
+| Library | Version | Used for | 
+|---|---|---|
+| [lunasvg](https://github.com/sammycage/lunasvg) | 3.5.0 | rendering SVG to pixels |
+| [Verovio](https://github.com/rism-digital/verovio) | 6.4.0 | music notation rendering |
+| [doctest](https://github.com/doctest/doctest) | 2.5.3 | unit tests |
 
