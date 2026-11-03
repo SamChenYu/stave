@@ -50,20 +50,34 @@ PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH) {
     return l;
 }
 
+namespace {
+
+// One direction of the status line's position, or "" if the image fits that way.
+std::string position(double at, double max, const char* start, const char* end, const char* along) {
+    if (max <= 0) return "";
+    if (at <= 0) return start;
+    if (at >= max) return end;
+    return std::to_string(std::lround(100 * at / max)) + "%" + along;
+}
+
+}  // namespace
+
 std::string statusLine(const std::string& name, const View& v, int width) {
-    std::string where;
-    if (v.maxY() <= 0)
-        where = "all";
-    else if (v.y() <= 0)
-        where = "top";
-    else if (v.y() >= v.maxY())
-        where = "end";
-    else
-        where = std::to_string(std::lround(100 * v.y() / v.maxY())) + "%";
+    const std::string across = position(v.x(), v.maxX(), "left", "right", " across");
+    const std::string down = position(v.y(), v.maxY(), "top", "bottom", "");
+    std::string where = across.empty() && down.empty() ? "all" : across + (across.empty() || down.empty() ? "" : ", ") + down;
     std::string s = " " + name + "  " + where + "  zoom " + std::to_string(std::lround(v.zoom() * 100)) +
                     "%    arrows/hjkl move  PgUp/PgDn page  Home/End  +/- zoom  q quit";
     s.resize(size_t(std::max(0, width)), ' ');
     return s;
+}
+
+double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout& layout, int rowPx) {
+    const double fitWidthScale = layout.imageW / docW;          // pixels per unit at zoom 1
+    double scale = 2.5 * rowPx / 4 / staffSpaceUnits;           // a staff (4 spaces) 2.5 rows tall
+    const double fitHeightScale = layout.imageH / docH;
+    if (fitHeightScale > scale) scale = std::min(fitHeightScale, 2 * scale);
+    return scale / fitWidthScale;
 }
 
 bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptions& opt) {
@@ -73,7 +87,12 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
     WindowSize size = queryWindowSize();
     int cols = size.cols > 0 ? size.cols : 80, rows = size.rows > 0 ? size.rows : 24;
     PagerLayout layout = pagerLayout(cols, rows, term.cellW, term.cellH);
-    const double zoom = opt.startWidth > 0 ? double(opt.startWidth) / layout.imageW : 1;
+    const int rowPx = term.cellH > 0 ? term.cellH : kGuessCellH;
+    double zoom = 1;
+    if (opt.startWidth > 0)
+        zoom = double(opt.startWidth) / layout.imageW;
+    else if (opt.staffSpaceUnits > 0)
+        zoom = scoreStartZoom(doc.width(), doc.height(), opt.staffSpaceUnits, layout, rowPx);
     View view(doc.width(), doc.height(), layout.imageW, layout.imageH, zoom);
 
     FullScreen fullScreen;

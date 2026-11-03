@@ -2,10 +2,12 @@
 #include <toolkit.h>  // Verovio
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +16,7 @@
 
 #include "encode.hpp"
 #include "pager.hpp"
+#include "score.hpp"
 #include "svgimage.hpp"
 #include "terminal.hpp"
 #include "termprobe.hpp"
@@ -22,12 +25,16 @@
 namespace {
 
 const char* const kUsage =
-    "usage: stave --svg FILE [--width N] [--print]\n"
+    "usage: stave FILE [--width N] [--print]\n"
     "       stave --test-pattern\n"
     "       stave --terminal-info\n"
-    "  --svg FILE       show an SVG file, full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, q quits\n"
-    "  --width N        how wide to draw it, in pixels (default: the terminal's width)\n"
-    "  --print          print it instead, like cat (always the case when output isn't a terminal)\n"
+    "  FILE             a score (MusicXML .musicxml/.xml/.mxl, MEI .mei or ABC .abc) or an SVG (.svg),\n"
+    "                   shown full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, q quits\n"
+    "  --svg FILE       treat FILE as an SVG, whatever its extension\n"
+    "  --width N        how wide to draw it at first, in pixels\n"
+    "  --print          print it instead, as wide as the terminal (always the case when output isn't a\n"
+    "                   terminal)\n"
+    "  --verovio-data DIR  where Verovio's music fonts are (default: verovio-data next to stave)\n"
     "  --test-pattern   draw a test image, to check that the terminal can show sixel graphics\n"
     "  --terminal-info  show what stave found out about this terminal\n"
     "  --version        print the versions of stave and its libraries\n";
@@ -68,9 +75,29 @@ std::optional<int> parseInt(std::string_view s) {
     return v;
 }
 
+bool isSvgFile(const std::string& path) {
+    std::string ext = std::filesystem::path(path).extension().string();
+    for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return ext == ".svg";
+}
+
+// Loads FILE: an SVG as it is, or a score engraved by Verovio into SVG.
+std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, const std::string& dataDir,
+                                          std::string& error) {
+    if (isSvg) return SvgDocument::fromFile(path, error);
+    const EngraveResult score = engraveScore(path, dataDir);
+    if (!score.error.empty()) {
+        error = score.error;
+        return nullptr;
+    }
+    auto doc = SvgDocument::fromData(score.svg, error);
+    if (!doc) error = path + ": Verovio's drawing couldn't be read: " + error;
+    return doc;
+}
+
 int run(int argc, char** argv) {
-    bool testPatternRequested = false, infoRequested = false, printRequested = false;
-    std::optional<std::string> svgPath;
+    bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
+    std::optional<std::string> file, dataDir;
     std::optional<int> width;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -90,24 +117,44 @@ int run(int argc, char** argv) {
             printRequested = true;
         } else if (arg == "--svg") {
             if (!hasValue) return usageError("--svg needs a file name");
-            svgPath = argv[++i];
+            if (file) return usageError("give only one file");
+            file = argv[++i];
+            forceSvg = true;
+        } else if (arg == "--verovio-data") {
+            if (!hasValue) return usageError("--verovio-data needs a folder");
+            dataDir = argv[++i];
         } else if (arg == "--width") {
             if (!hasValue) return usageError("--width needs a number of pixels");
             width = parseInt(argv[++i]);
             if (!width || *width < 1 || *width > kMaxImageSide)
                 return usageError("--width needs a whole number from 1 to " + std::to_string(kMaxImageSide) +
                                   ", not '" + argv[i] + "'");
-        } else {
+        } else if (!arg.empty() && arg[0] == '-') {
             return usageError("unknown option '" + std::string(arg) + "'");
+        } else {
+            if (file) return usageError("give only one file");
+            file = std::string(arg);
         }
     }
-    if (int(testPatternRequested) + int(svgPath.has_value()) + int(infoRequested) > 1)
-        return usageError("use only one of --svg, --test-pattern and --terminal-info");
-    if (width && !svgPath) return usageError("--width only applies to --svg");
-    if (printRequested && !svgPath) return usageError("--print only applies to --svg");
-    if (!testPatternRequested && !svgPath && !infoRequested) {
+    if (int(testPatternRequested) + int(file.has_value()) + int(infoRequested) > 1)
+        return usageError("use only one of FILE, --test-pattern and --terminal-info");
+    if ((width || printRequested || dataDir) && !file)
+        return usageError("--width, --print and --verovio-data only apply when showing a file");
+    if (!testPatternRequested && !file && !infoRequested) {
         std::fputs(kUsage, stdout);
         return 0;
+    }
+
+    // Load before touching the terminal, so a bad file is reported plainly.
+    std::unique_ptr<SvgDocument> doc;
+    const bool isSvg = file && (forceSvg || isSvgFile(*file));
+    if (file) {
+        std::string error;
+        doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error);
+        if (!doc) {
+            std::fprintf(stderr, "stave: %s\n", error.c_str());
+            return 1;
+        }
     }
 
     ConsoleSetup console;
@@ -118,28 +165,23 @@ int run(int argc, char** argv) {
     }
     const InkAndPaper colours = chooseColours(term);
 
-    if (svgPath && !printRequested && isInteractive()) {
-        std::string error;
-        const auto doc = SvgDocument::fromFile(*svgPath, error);
-        if (!doc) {
-            std::fprintf(stderr, "stave: %s\n", error.c_str());
-            return 1;
-        }
+    if (doc && !printRequested && isInteractive()) {
         PagerOptions opt;
-        opt.name = std::filesystem::path(*svgPath).filename().string();
+        opt.name = std::filesystem::path(*file).filename().string();
         opt.ink = colours.ink;
         opt.paper = colours.paper;
         opt.startWidth = width.value_or(0);
+        opt.staffSpaceUnits = isSvg ? 0 : kStaffSpaceUnits;
         if (runPager(*doc, term, opt)) return 0;
         // Couldn't read keys after all: fall through and print instead.
     }
 
     std::optional<Canvas> canvas;
-    if (svgPath) {
+    if (doc) {
         const int defaultWidth = term.pixelWidth() > 0 ? std::min(term.pixelWidth(), kMaxImageSide) : kFallbackWidth;
-        SvgRenderResult r = renderSvgFile(*svgPath, width.value_or(defaultWidth));
+        SvgRenderResult r = renderSvgDocument(*doc, width.value_or(defaultWidth));
         if (!r.canvas) {
-            std::fprintf(stderr, "stave: %s\n", r.error.c_str());
+            std::fprintf(stderr, "stave: %s: %s\n", file->c_str(), r.error.c_str());
             return 1;
         }
         canvas = std::move(r.canvas);

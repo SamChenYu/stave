@@ -41,9 +41,23 @@ TEST_SUITE("status line") {
         v.apply(Key::PageDown);  // 270 of 500
         CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  54%  zoom 100%", 0) == 0);
         v.apply(Key::End);
-        CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  end  zoom 100%", 0) == 0);
+        CHECK(statusLine("song.svg", v, 200).rfind(" song.svg  bottom  zoom 100%", 0) == 0);
         const View fits(100, 50, 400, 300);  // 400 x 200 pixels: nothing to scroll
         CHECK(statusLine("song.svg", fits, 200).rfind(" song.svg  all  zoom 100%", 0) == 0);
+    }
+
+    TEST_CASE("says where the view is across a wide image, like a score") {
+        View v(1000, 100, 400, 300, 2);  // 800 x 80 pixels: 400 to the right of the screen
+        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  left  zoom 200%", 0) == 0);
+        v.apply(Key::PageRight);  // 360 of 400
+        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  90% across  zoom 200%", 0) == 0);
+        v.apply(Key::End);
+        CHECK(statusLine("score.mxl", v, 200).rfind(" score.mxl  right  zoom 200%", 0) == 0);
+    }
+
+    TEST_CASE("says both directions when the image is bigger both ways") {
+        const View v(100, 100, 400, 300, 2);  // 800 x 800 pixels
+        CHECK(statusLine("big.svg", v, 200).rfind(" big.svg  left, top  zoom 200%", 0) == 0);
     }
 
     TEST_CASE("is padded or cut to exactly the width") {
@@ -55,8 +69,39 @@ TEST_SUITE("status line") {
 }
 
 TEST_SUITE("view") {
-    TEST_CASE("can start at another zoom, within the limits") {
-        CHECK(View(100, 200, 400, 300, 2).scale() == 8);
-        CHECK(View(100, 200, 400, 300, 100).zoom() == View::kMaxZoom);
+    TEST_CASE("can start at another zoom, and the limits follow it") {
+        const View v(100, 200, 400, 300, 2);
+        CHECK(v.scale() == 8);
+        CHECK(v.minZoom() == View::kMinZoom);       // out to a quarter of fitting the width
+        CHECK(v.maxZoom() == 2 * View::kMaxZoom);   // in to 8 times the start
+        const View tiny(100, 200, 400, 300, 0.5);
+        CHECK(tiny.minZoom() == 0.5 * View::kMinZoom);
+        CHECK(tiny.maxZoom() == View::kMaxZoom);
+    }
+}
+
+// A long score: 10,000 units wide and 300 tall, 18 units per staff space, on a screen of
+// 1080 x 551 pixels (29 rows of 19 pixels) once the status line is taken off.
+TEST_SUITE("score zoom") {
+    const PagerLayout kLayout = pagerLayout(120, 30, 9, 19);  // image 1080 x 546
+
+    TEST_CASE("staves start about two and a half rows tall, not squeezed to fit the width") {
+        // 2.5 rows x 19 pixels / 4 spaces = 11.875 pixels per space = 0.66 pixels per unit; the
+        // system is then 198 pixels tall, more than twice short of 546, so it's doubled to 1.32.
+        const double zoom = scoreStartZoom(10000, 300, 18, kLayout, 19);
+        const double scale = zoom * kLayout.imageW / 10000;
+        CHECK(scale == doctest::Approx(2 * 2.5 * 19 / 4 / 18));
+    }
+
+    TEST_CASE("a system that nearly fits is enlarged just enough to fill the height") {
+        const double zoom = scoreStartZoom(10000, 600, 18, kLayout, 19);  // 396 pixels tall at the start size
+        const double scale = zoom * kLayout.imageW / 10000;
+        CHECK(scale == doctest::Approx(546.0 / 600));
+    }
+
+    TEST_CASE("a tall system, like a full orchestra, keeps the readable size and scrolls down") {
+        const double zoom = scoreStartZoom(10000, 3000, 18, kLayout, 19);
+        const double scale = zoom * kLayout.imageW / 10000;
+        CHECK(scale == doctest::Approx(2.5 * 19 / 4 / 18));
     }
 }

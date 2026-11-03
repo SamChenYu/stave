@@ -37,19 +37,21 @@ add_library(stave_core STATIC
     src/encode.cpp
     src/keys.cpp
     src/pager.cpp
+    src/platform.cpp
+    src/score.cpp
     src/svgimage.cpp
     src/terminal.cpp
     src/termprobe.cpp
     src/testpattern.cpp
     src/view.cpp)
 target_include_directories(stave_core PUBLIC src)
-target_link_libraries(stave_core PUBLIC lunasvg::lunasvg)
+target_link_libraries(stave_core PUBLIC lunasvg::lunasvg verovio)
 stave_warnings(stave_core)
 
 # ---- stave
 add_executable(stave src/main.cpp)
 target_compile_definitions(stave PRIVATE STAVE_VERSION="${PROJECT_VERSION}")
-target_link_libraries(stave PRIVATE stave_core verovio)
+target_link_libraries(stave PRIVATE stave_core)
 stave_warnings(stave)
 stave_copy_verovio_data(stave)
 

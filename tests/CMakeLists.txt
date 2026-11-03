@@ -14,6 +14,7 @@ add_executable(stave_tests
     golden_test.cpp
     keys_test.cpp
     pager_test.cpp
+    score_test.cpp
     sixel_test.cpp
     svg_test.cpp
     termprobe_test.cpp
@@ -27,6 +28,7 @@ target_compile_definitions(stave_tests PRIVATE
     STAVE_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}/output"
     _CRT_SECURE_NO_WARNINGS)  # allow plain std::getenv on MSVC
 stave_warnings(stave_tests)
+stave_copy_verovio_data(stave_tests)
 
 # Registers every TEST_CASE with CTest under its own name.
 doctest_discover_tests(stave_tests)

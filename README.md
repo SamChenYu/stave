@@ -20,15 +20,18 @@ Needs a terminal that can show sixel graphics, such as Windows Terminal 1.22+, W
 iTerm2.
 
 ```
-stave --svg FILE             # show an SVG full screen, as wide as the terminal
-stave --svg FILE --width 400 # ...starting at another width
-stave --svg FILE --print     # print it inline instead, like cat
+stave score.musicxml         # show a score full screen (MusicXML .musicxml/.xml/.mxl, MEI or ABC)
+stave drawing.svg            # ...or an SVG
+stave FILE --width 400       # start at another width
+stave FILE --print           # print it inline instead, like cat
 stave --test-pattern         # a test image, to check that sixel works in this terminal
 stave --terminal-info        # what stave found out about this terminal
 ```
 
-In a terminal, `--svg` opens a full-screen viewer; when the output isn't a terminal, it prints
-instead.
+In a terminal, a file opens in a full-screen viewer; when the output isn't a terminal, it prints
+instead. A score is laid out as one long line of music that scrolls sideways, starting with each
+staff about two and a half text rows tall. stave finds Verovio's music fonts in `verovio-data/`
+next to the executable (the build puts them there); `--verovio-data DIR` points elsewhere.
 
 | Key | Action |
 |---|---|

@@ -4,7 +4,12 @@
 
 View::View(double docW, double docH, int screenW, int screenH, double zoom)
     : docW_(std::max(docW, 1e-6)), docH_(std::max(docH, 0.0)), screenW_(std::max(1, screenW)),
-      screenH_(std::max(1, screenH)), zoom_(std::clamp(zoom, kMinZoom, kMaxZoom)) {}
+      screenH_(std::max(1, screenH)) {
+    zoom = std::max(zoom, 1e-6);
+    minZoom_ = kMinZoom * std::min(1.0, zoom);
+    maxZoom_ = kMaxZoom * std::max(1.0, zoom);
+    zoom_ = zoom;
+}
 
 double View::maxX() const { return std::max(0.0, imageW() - screenW_); }
 double View::maxY() const { return std::max(0.0, imageH() - screenH_); }
@@ -15,7 +20,7 @@ void View::clamp() {
 }
 
 void View::setZoom(double zoom) {
-    zoom = std::clamp(zoom, kMinZoom, kMaxZoom);
+    zoom = std::clamp(zoom, minZoom_, maxZoom_);
     const double s = scale();
     const double cx = (x_ + screenW_ / 2.0) / s, cy = (y_ + screenH_ / 2.0) / s;  // image point at the middle
     zoom_ = zoom;

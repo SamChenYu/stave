@@ -6,6 +6,10 @@
 // The image is docW x docH in its own units (an SVG's width and height). Zoom 1 draws it exactly
 // as wide as the screen; zoom 2 draws it twice as wide. The offset (x, y) is the screen's top-left
 // corner, in pixels of the image as currently drawn, and never goes past the image's edges.
+//
+// Zoom ranges from kMinZoom times the smaller of the starting zoom and 1 (fitting the width), to
+// kMaxZoom times the larger. So an image starting at zoom 1 can go from 0.25 to 8, and a long
+// score starting at zoom 12 from 0.25 (all of it across a quarter of the screen) to 96.
 class View {
 public:
     static constexpr double kMinZoom = 0.25, kMaxZoom = 8, kZoomStep = 1.25;
@@ -22,6 +26,8 @@ public:
 
     double scale() const { return zoom_ * screenW_ / docW_; }  // pixels per image unit
     double zoom() const { return zoom_; }
+    double minZoom() const { return minZoom_; }
+    double maxZoom() const { return maxZoom_; }
     double x() const { return x_; }
     double y() const { return y_; }
     int screenW() const { return screenW_; }
@@ -37,5 +43,6 @@ private:
 
     double docW_, docH_;
     int screenW_, screenH_;
+    double minZoom_, maxZoom_;
     double zoom_ = 1, x_ = 0, y_ = 0;
 };

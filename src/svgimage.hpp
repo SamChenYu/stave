@@ -48,5 +48,6 @@ struct SvgRenderResult {
 };
 
 // The whole SVG, `width` pixels wide, with the height following its aspect ratio.
+SvgRenderResult renderSvgDocument(const SvgDocument&, int width);
 SvgRenderResult renderSvgFile(const std::string& path, int width);
 SvgRenderResult renderSvgData(std::string_view svg, int width);

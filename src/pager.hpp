@@ -15,14 +15,23 @@ struct PagerLayout {
 };
 PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH);
 
-// The status line, cut or padded to exactly `width` characters: the name, where the view is
-// ("top", "end", "all" or a percentage of the way down), the zoom, and the keys.
+// The status line, cut or padded to exactly `width` characters: the name, where the view is, the
+// zoom, and the keys. Where the view is: "left", "right" or a percentage across, if the image is
+// wider than the screen; "top", "bottom" or a percentage down, if it's taller; "all" if neither.
 std::string statusLine(const std::string& name, const View&, int width);
 
+// The starting zoom for a score, which is one long system: fitting its width would make it tiny.
+// Instead each staff is drawn about two and a half text rows tall; and if the whole system then
+// fits on screen with room to spare, it's enlarged to fill the height, up to twice that size.
+// staffSpaceUnits is the image's units per staff space; rowPx is one text row in pixels.
+double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout&, int rowPx);
+
 struct PagerOptions {
-    std::string name;   // shown in the status line
-    RGB ink, paper;     // paper is painted, so each frame fully covers the one before
-    int startWidth = 0;  // how wide to draw the image at first, in pixels; 0 fits the screen's width
+    std::string name;             // shown in the status line
+    RGB ink, paper;               // paper is painted, so each frame fully covers the one before
+    int startWidth = 0;           // how wide to draw the image at first, in pixels (0: see below)
+    double staffSpaceUnits = 0;   // for a score: units per staff space, to start at a readable size;
+                                  // 0 (and no startWidth): start fitting the screen's width
 };
 
 // Shows the document full screen, on the terminal's alternate screen, until the user quits.

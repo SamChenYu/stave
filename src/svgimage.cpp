@@ -66,7 +66,9 @@ namespace {
 
 SvgRenderResult failure(std::string message) { return {std::nullopt, std::move(message)}; }
 
-SvgRenderResult renderWhole(const SvgDocument& doc, int width) {
+}  // namespace
+
+SvgRenderResult renderSvgDocument(const SvgDocument& doc, int width) {
     if (width < 1 || width > kMaxImageSide)
         return failure("width must be between 1 and " + std::to_string(kMaxImageSide) + " pixels");
     const double scale = width / doc.width();
@@ -77,13 +79,11 @@ SvgRenderResult renderWhole(const SvgDocument& doc, int width) {
     return {doc.render(scale, 0, 0, width, std::max(1, int(heightD))), ""};
 }
 
-}  // namespace
-
 SvgRenderResult renderSvgFile(const std::string& path, int width) {
     std::string error;
     const auto doc = SvgDocument::fromFile(path, error);
     if (!doc) return failure(error);
-    SvgRenderResult r = renderWhole(*doc, width);
+    SvgRenderResult r = renderSvgDocument(*doc, width);
     if (!r.error.empty()) r.error = path + ": " + r.error;
     return r;
 }
@@ -92,5 +92,5 @@ SvgRenderResult renderSvgData(std::string_view svg, int width) {
     std::string error;
     const auto doc = SvgDocument::fromData(svg, error);
     if (!doc) return failure(error);
-    return renderWhole(*doc, width);
+    return renderSvgDocument(*doc, width);
 }
