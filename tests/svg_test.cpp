@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "svgimage.hpp"
 
@@ -75,6 +76,43 @@ TEST_SUITE("svg rendering") {
             CHECK(!renderSvgData(svg, w).canvas);
         }
         CHECK(renderSvgData(svg, 1).canvas);
+    }
+
+    TEST_CASE("a window drawn at an offset is exactly that part of the whole image") {
+        std::string error;
+        const auto doc = SvgDocument::fromFile(std::string(STAVE_TEST_DATA_DIR) + "/staff-note.svg", error);
+        REQUIRE_MESSAGE(doc, error);
+        const double scale = 3;  // 600 x 240 pixels in all
+        const Canvas whole = doc->render(scale, 0, 0, 600, 240);
+        for (auto [x, y] : {std::pair{0, 0}, {137, 41}, {450, 100}}) {
+            CAPTURE(x);
+            CAPTURE(y);
+            const Canvas part = doc->render(scale, x, y, 150, 140);
+            int wrong = 0;
+            for (int py = 0; py < part.h; ++py)
+                for (int px = 0; px < part.w; ++px) {
+                    const int wx = x + px, wy = y + py;
+                    const uint8_t want = wx < whole.w && wy < whole.h ? whole.at(wx, wy) : 0;  // beyond: blank
+                    if (part.at(px, py) != want) ++wrong;
+                }
+            CHECK(wrong == 0);
+        }
+    }
+
+    TEST_CASE("the window's offset is rounded to whole pixels") {
+        std::string error;
+        const auto doc = SvgDocument::fromData(filledSvg(10, 10, "fill=\"#000\""), error);
+        REQUIRE(doc);
+        const Canvas c = doc->render(1, -0.4, 4.6, 10, 10);  // same as (0, 5): rows 5 and up are past the image
+        CHECK(c.at(0, 4) == 255);
+        CHECK(c.at(0, 5) == 0);
+    }
+
+    TEST_CASE("an empty window is fine") {
+        std::string error;
+        const auto doc = SvgDocument::fromData(filledSvg(10, 10, "fill=\"#000\""), error);
+        REQUIRE(doc);
+        CHECK(doc->render(1, 0, 0, 0, 5).px.empty());
     }
 
     TEST_CASE("a very tall SVG is rejected instead of allocating a huge image") {

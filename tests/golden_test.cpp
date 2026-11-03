@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <initializer_list>
 #include <string>
 #include <utility>
 
@@ -9,6 +10,7 @@
 #include "svgimage.hpp"
 #include "termprobe.hpp"
 #include "testpattern.hpp"
+#include "view.hpp"
 
 // Pixel comparisons against the expected images in tests/golden/: each case draws a known input,
 // runs it through the encoder, decodes the bytes the way a terminal would, and compares pixels.
@@ -28,6 +30,16 @@ Canvas svgFromTestData(const std::string& name, int width) {
     SvgRenderResult r = renderSvgFile(std::string(STAVE_TEST_DATA_DIR) + "/" + name, width);
     REQUIRE_MESSAGE(r.canvas, r.error);
     return std::move(*r.canvas);
+}
+
+// One pager frame: what's on a w x h screen showing an SVG from tests/data, after pressing `keys`.
+Canvas frameAfter(const std::string& name, int w, int h, std::initializer_list<Key> keys) {
+    std::string error;
+    const auto doc = SvgDocument::fromFile(std::string(STAVE_TEST_DATA_DIR) + "/" + name, error);
+    REQUIRE_MESSAGE(doc, error);
+    View v(doc->width(), doc->height(), w, h);
+    for (Key k : keys) v.apply(k);
+    return doc->render(v.scale(), v.x(), v.y(), w, h);
 }
 
 constexpr RGB kBlack{0, 0, 0}, kWhite{255, 255, 255};
@@ -59,5 +71,28 @@ TEST_SUITE("golden images") {
         dark.bg = RGB{12, 12, 12};
         const InkAndPaper c = chooseColours(dark);
         checkGolden("svg-staff-note-dark", throughSixel(svgFromTestData("staff-note.svg", 400), c.ink, c.paper, c.opaque));
+    }
+}
+
+// Pager frames of staff-note.svg (200 x 80 units) on a 300 x 150 pixel screen.
+TEST_SUITE("golden pager frames") {
+    TEST_CASE("fitted to the screen's width, with blank space below") {
+        checkGolden("frame-fit", throughSixel(frameAfter("staff-note.svg", 300, 150, {}), kBlack, kWhite, true));
+    }
+
+    TEST_CASE("zoomed in twice, then one step right and down") {
+        const Canvas c = frameAfter("staff-note.svg", 300, 150, {Key::ZoomIn, Key::ZoomIn, Key::Right, Key::Down});
+        checkGolden("frame-zoomed-scrolled", throughSixel(c, kBlack, kWhite, true));
+    }
+
+    TEST_CASE("zoomed in, then End: the bottom-right corner") {
+        const Canvas c =
+            frameAfter("staff-note.svg", 300, 150, {Key::ZoomIn, Key::ZoomIn, Key::ZoomIn, Key::ZoomIn, Key::End});
+        checkGolden("frame-end", throughSixel(c, kBlack, kWhite, true));
+    }
+
+    TEST_CASE("zoomed out: smaller than the screen, against the top-left") {
+        const Canvas c = frameAfter("staff-note.svg", 300, 150, {Key::ZoomOut, Key::ZoomOut});
+        checkGolden("frame-zoomed-out", throughSixel(c, kBlack, kWhite, true));
     }
 }
