@@ -4,3 +4,6 @@
 [submodule "external/lunasvg"]
 	path = external/lunasvg
 	url = https://github.com/sammycage/lunasvg.git
+[submodule "external/doctest"]
+	path = external/doctest
+	url = https://github.com/doctest/doctest.git
