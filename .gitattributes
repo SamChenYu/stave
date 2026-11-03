@@ -1,0 +1,8 @@
+# Normalise line endings in the repository; check out with the platform's native endings.
+* text=auto
+
+# Binary files
+*.mxl binary
+*.png binary
+*.ttf binary
+*.otf binary
