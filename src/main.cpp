@@ -138,7 +138,10 @@ int bench(const SvgDocument& doc, const PagerOptions& opt, const std::optional<S
     if (engraveMs > 0) std::printf("engrave   %8.1f ms  (Verovio)\n", engraveMs);
     std::printf("load      %8.1f ms  (reading the SVG%s)\n", loadMs - engraveMs,
                 layout ? ", finding the bars and staves" : "");
-    if (layout) std::printf("          %zu bars, %zu staves\n", layout->barStarts.size(), layout->staves.size());
+    if (layout) {
+        const size_t bars = layout->barStarts.size(), staves = layout->staves.size();
+        std::printf("          %zu bar%s, %zu stave%s\n", bars, bars == 1 ? "" : "s", staves, staves == 1 ? "" : "s");
+    }
 
     // Each run draws the next screen across, as paging through would, then starts over at the end.
     std::vector<Canvas> frames;
