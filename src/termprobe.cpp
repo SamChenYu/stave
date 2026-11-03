@@ -91,17 +91,39 @@ TerminalInfo combineTerminalInfo(const WindowSize& ws, const TerminalReplies& r)
     TerminalInfo t;
     t.cols = ws.cols;
     t.rows = ws.rows;
+
+    // Cell size in logical points, as the terminal reports it: CSI 16 t directly, or else a
+    // text-area size (CSI 14 t, failing that the OS's pixel size) split over the rows and columns.
+    // pointW keeps that text-area width in the same points, to spot a HiDPI display just below.
+    int cellW = 0, cellH = 0, pointW = 0;
     if (r.cellW > 0 && r.cellH > 0) {
-        t.cellW = r.cellW;
-        t.cellH = r.cellH;
+        cellW = r.cellW;
+        cellH = r.cellH;
+        if (t.cols > 0) pointW = r.cellW * t.cols;
     } else if (t.cols > 0 && t.rows > 0) {
         const int w = r.windowW > 0 ? r.windowW : ws.pixelW;
         const int h = r.windowW > 0 ? r.windowH : ws.pixelH;
         if (w > 0 && h > 0) {
-            t.cellW = w / t.cols;
-            t.cellH = h / t.rows;
+            cellW = w / t.cols;
+            cellH = h / t.rows;
+            pointW = w;
         }
     }
+
+    // Image protocols (sixel, kitty) draw one image pixel per physical device pixel, but on a HiDPI
+    // display terminals like iTerm2 answer the size queries above in logical points — half the
+    // device pixels. The OS's TIOCGWINSZ reports the true device width, so when it is a whole
+    // multiple of the point width, that multiple is the display's scale factor, and growing the
+    // cell by it makes a full-width image really span the window. Without the OS size the scale is
+    // taken as 1 (an image may then come out half width on HiDPI, the best guess left).
+    int scale = 1;
+    if (ws.pixelW > 0 && pointW > 0) {
+        const int s = (ws.pixelW + pointW / 2) / pointW;  // round(ws.pixelW / pointW)
+        if (s > 1) scale = s;
+    }
+    t.cellW = cellW * scale;
+    t.cellH = cellH * scale;
+
     t.answered = r.complete;
     t.sixel = r.sixel;
     t.kitty = r.kitty;

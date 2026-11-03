@@ -122,6 +122,14 @@ TEST_SUITE("terminal info") {
         CHECK(t.pixelWidth() == 800);
     }
 
+    TEST_CASE("on a HiDPI display the cell grows to the device pixels an image draws in") {
+        // iTerm2 on a 2x display: it answers CSI 14 t in logical points (text area 1536 wide over
+        // 190 columns), but the OS reports the real 3040 device pixels, so one cell is 16 not 8.
+        const TerminalInfo t = combineTerminalInfo({190, 54, 3040, 1836}, parseTerminalReplies("\x1b[4;924;1536t\x1b[?4c"));
+        CHECK(t.cellW == 16);
+        CHECK(t.pixelWidth() == 3040);  // a full-width image spans the whole window
+    }
+
     TEST_CASE("the OS's pixel size is the last resort") {
         const TerminalInfo t = combineTerminalInfo({80, 24, 640, 384}, parseTerminalReplies("\x1b[?1c"));
         CHECK(t.cellW == 8);

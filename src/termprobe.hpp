@@ -40,7 +40,9 @@ struct TerminalReplies {
 TerminalReplies parseTerminalReplies(std::string_view received);
 
 // Merges the OS's window size with the terminal's answers. The terminal's cell size is the
-// most precise; failing that, a window size in pixels divided by the columns and rows.
+// most precise; failing that, a window size in pixels divided by the columns and rows. The cell
+// is then returned in physical device pixels: on a HiDPI display the terminal reports points, so
+// it is scaled up by the OS's device width over that point width, keeping images full width.
 TerminalInfo combineTerminalInfo(const WindowSize&, const TerminalReplies&);
 
 // Asks the OS and then the terminal, waiting at most timeoutMs for answers. Only asks the
