@@ -96,3 +96,101 @@ TEST_SUITE("view") {
         CHECK(v.x() == doctest::Approx(381.25));
     }
 }
+
+// A score-like image, 1000 x 300 units, on a 400 x 150 screen at 1 pixel per unit (zoom 2.5).
+// Five bars start at 50, 250, 450, 650 and 850 and end at 950; moving to a bar keeps a margin of
+// 10 to its left, so the stops are at 0 (the first bar shows everything before it), 240, 440, 640
+// and 840. The view can go 600 across at most. Two staves own 0-150 and 150-300.
+TEST_SUITE("view stops") {
+    View scoreView() {
+        View v(1000, 300, 400, 150, 2.5);
+        View::Stops s;
+        s.bars = {50, 250, 450, 650, 850};
+        s.barsEnd = 950;
+        s.staves = {0, 150};
+        s.stavesEnd = 300;
+        s.margin = 10;
+        v.setStops(s);
+        return v;
+    }
+
+    TEST_CASE("arrows move a bar at a time, stopping at the edges") {
+        View v = scoreView();
+        CHECK(v.scale() == 1);
+        CHECK(v.apply(Key::Right));
+        CHECK(v.x() == 240);
+        v.apply(Key::Right);
+        CHECK(v.x() == 440);
+        v.apply(Key::Right);
+        CHECK(v.x() == 600);  // bar 4 would be at 640, past the end of the image
+        CHECK(!v.apply(Key::Right));
+        v.apply(Key::Left);
+        CHECK(v.x() == 440);  // back to the stop before where it is
+        v.apply(Key::Left);
+        v.apply(Key::Left);
+        CHECK(v.x() == 0);
+        CHECK(!v.apply(Key::Left));
+    }
+
+    TEST_CASE("pages put the bar cut off at the edge first") {
+        View v = scoreView();
+        CHECK(v.apply(Key::PageRight));
+        CHECK(v.x() == 240);  // bar 2 (250-450) was cut off at 400
+        v.apply(Key::PageRight);
+        CHECK(v.x() == 440);  // bar 3 (450-650) was cut off at 640
+        v.apply(Key::PageLeft);
+        CHECK(v.x() == 240);  // as far back as possible while x = 440 stays on screen
+        v.apply(Key::PageLeft);
+        CHECK(v.x() == 0);
+    }
+
+    TEST_CASE("up and down move a staff at a time") {
+        View v = scoreView();
+        CHECK(v.apply(Key::Down));
+        CHECK(v.y() == 150);
+        CHECK(!v.apply(Key::Down));
+        CHECK(v.apply(Key::PageUp));
+        CHECK(v.y() == 0);
+        CHECK(v.apply(Key::PageDown));
+        CHECK(v.y() == 150);
+    }
+
+    TEST_CASE("Home and End go to the first and last bar, staying on the same staff") {
+        View v = scoreView();
+        v.apply(Key::Down);
+        CHECK(v.apply(Key::End));
+        CHECK(v.x() == 600);
+        CHECK(v.y() == 150);
+        CHECK(v.apply(Key::Home));
+        CHECK(v.x() == 0);
+        CHECK(v.y() == 150);
+    }
+
+    TEST_CASE("knows which bars and staves are on screen") {
+        View v = scoreView();
+        CHECK(v.barsOnScreen() == std::pair{1, 2});
+        CHECK(v.stavesOnScreen() == std::pair{1, 1});
+        v.apply(Key::Right);  // 240-640: bar 1's end shows in the margin, which doesn't count
+        CHECK(v.barsOnScreen() == std::pair{2, 3});
+        v.apply(Key::End);  // 600-1000
+        CHECK(v.barsOnScreen() == std::pair{3, 5});
+    }
+
+    TEST_CASE("can go straight to a bar and staff") {
+        View v = scoreView();
+        v.goTo(3, 2);
+        CHECK(v.x() == 440);
+        CHECK(v.y() == 150);
+        v.goTo(99, 99);  // past the end: as far as it goes
+        CHECK(v.x() == 600);
+        CHECK(v.y() == 150);
+    }
+
+    TEST_CASE("without stops, keys move by fractions of the screen as before") {
+        View v(1000, 300, 400, 150, 2.5);
+        CHECK(!v.hasStops());
+        v.apply(Key::Right);
+        CHECK(v.x() == doctest::Approx(40));
+        CHECK(v.barsOnScreen() == std::pair{0, 0});
+    }
+}

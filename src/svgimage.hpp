@@ -44,6 +44,9 @@ public:
     // none, render() goes on drawing everything.
     size_t splitInto(const std::string& selector);
 
+    // The parsed document itself, for reading its structure (as score.cpp does).
+    const lunasvg::Document& lunasvgDocument() const { return *doc_; }
+
 private:
     struct Piece;
     explicit SvgDocument(std::unique_ptr<lunasvg::Document>);

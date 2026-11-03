@@ -67,6 +67,19 @@ TEST_SUITE("status line") {
         CHECK(statusLine("score.mxl", v, 200).find("zoom 125%") != std::string::npos);
     }
 
+    TEST_CASE("for a score, says which bars and staves are on screen") {
+        View v(1000, 300, 400, 150, 2.5);  // as in view_test.cpp's "view stops"
+        View::Stops s;
+        s.bars = {50, 250, 450, 650, 850};
+        s.barsEnd = 950;
+        s.staves = {0, 150};
+        s.stavesEnd = 300;
+        s.margin = 10;
+        v.setStops(s);
+        CHECK(statusLine("quartet.mxl", v, 200).rfind(" quartet.mxl  bars 1-2 of 5  staff 1 of 2  zoom 100%", 0) == 0);
+        CHECK(statusLine("quartet.mxl", v, 200).find("arrows/hjkl bar/staff") != std::string::npos);
+    }
+
     TEST_CASE("is padded or cut to exactly the width") {
         const View v(100, 200, 400, 300);
         CHECK(statusLine("song.svg", v, 200).size() == 200);

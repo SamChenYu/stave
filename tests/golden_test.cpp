@@ -3,6 +3,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -68,8 +69,11 @@ Canvas wholeScore(const std::string& name, double scale) {
 Canvas scoreFrame(const std::string& name, int cols, int rows, int cellW, int cellH, std::initializer_list<Key> keys) {
     const auto doc = engraved(name);
     const PagerLayout layout = pagerLayout(cols, rows, cellW, cellH);
+    const std::optional<ScoreLayout> score = findScoreLayout(*doc);
+    REQUIRE(score);
     View v(doc->width(), doc->height(), layout.imageW, layout.imageH,
-           scoreStartZoom(doc->width(), doc->height(), kStaffSpaceUnits, layout, cellH));
+           scoreStartZoom(doc->width(), doc->height(), score->staffSpace, layout, cellH));
+    v.setStops(scoreStops(*score, doc->height()));
     for (Key k : keys) v.apply(k);
     return doc->render(v.scale(), v.x(), v.y(), layout.imageW, layout.imageH);
 }
@@ -143,6 +147,11 @@ TEST_SUITE("golden scores") {
     TEST_CASE("the pager's first frame of a score, at the readable starting size") {
         const Canvas c = scoreFrame("piano.musicxml", 60, 16, 9, 19, {});
         checkGolden("score-frame-start", throughSixel(c, kBlack, kWhite, true));
+    }
+
+    TEST_CASE("the pager one bar on: bar 2 starts at the left edge, with its barline") {
+        const Canvas c = scoreFrame("piano.musicxml", 30, 16, 9, 19, {Key::Right});  // narrow enough to reach bar 2
+        checkGolden("score-frame-next-bar", throughSixel(c, kBlack, kWhite, true));
     }
 
     TEST_CASE("the pager scrolled sideways through a score") {

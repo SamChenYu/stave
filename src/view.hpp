@@ -1,4 +1,7 @@
 #pragma once
+#include <utility>
+#include <vector>
+
 #include "keys.hpp"
 
 // Which part of an image is on screen, and how keys move it.
@@ -12,6 +15,17 @@
 // score starting at zoom 12 from 0.25 (all of it across a quarter of the screen) to 96.
 class View {
 public:
+    // Where keys stop in a score, in image units. With stops, arrows move a bar or a staff at a
+    // time instead of a tenth of the screen, page keys move by whole bars and staves (the bar or
+    // staff cut off at the edge comes first), and Home and End go to the first and last bar.
+    struct Stops {
+        std::vector<double> bars;    // where each bar starts, left to right
+        double barsEnd = 0;          // where the last bar ends
+        std::vector<double> staves;  // where each staff's band starts, top to bottom
+        double stavesEnd = 0;        // where the last staff's band ends
+        double margin = 0;           // kept to the left of a bar moved to, so its barline shows
+    };
+
     static constexpr double kMinZoom = 0.25, kMaxZoom = 8, kZoomStep = 1.25;
     static constexpr double kLineFraction = 0.1;  // arrow keys move a tenth of the screen
     static constexpr double kPageFraction = 0.9;  // page keys move a screen, keeping a little in view
@@ -23,6 +37,16 @@ public:
 
     // The window was resized. Keeps the same part of the image at the top-left corner.
     void resize(int screenW, int screenH);
+
+    void setStops(Stops);
+    bool hasStops() const { return !stops_.bars.empty(); }
+    int barCount() const { return int(stops_.bars.size()); }
+    int staffCount() const { return int(stops_.staves.size()); }
+    // The first and last bar (or staff) at least partly on screen, counting from 1; {0, 0} without stops.
+    std::pair<int, int> barsOnScreen() const;
+    std::pair<int, int> stavesOnScreen() const;
+    // Moves so the given bar and staff (from 1) start at the top-left corner, as far as the edges allow.
+    void goTo(int bar, int staff);
 
     double scale() const { return zoom_ * screenW_ / docW_; }  // pixels per image unit
     double zoom() const { return zoom_; }
@@ -46,4 +70,5 @@ private:
     int screenW_, screenH_;
     double startZoom_, minZoom_, maxZoom_;
     double zoom_ = 1, x_ = 0, y_ = 0;
+    Stops stops_;
 };

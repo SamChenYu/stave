@@ -60,19 +60,32 @@ std::string position(double at, double max, const char* start, const char* end, 
     return std::to_string(std::lround(100 * at / max)) + "%" + along;
 }
 
+// "bars 5-9 of 120", or "bar 5 of 120" when only one is on screen.
+std::string range(const char* one, const char* many, std::pair<int, int> shown, int count) {
+    const std::string of = " of " + std::to_string(count);
+    if (shown.first == shown.second) return std::string(one) + " " + std::to_string(shown.first) + of;
+    return std::string(many) + " " + std::to_string(shown.first) + "-" + std::to_string(shown.second) + of;
+}
+
 }  // namespace
 
 std::string statusLine(const std::string& name, const View& v, int width) {
-    const std::string across = position(v.x(), v.maxX(), "left", "right", " across");
-    const std::string down = position(v.y(), v.maxY(), "top", "bottom", " down");
-    std::string where;
-    if (across.empty() && down.empty())
-        where = "all";
-    else
-        where = across + (across.empty() || down.empty() ? "" : ", ") + down;
+    std::string where, keys;
+    if (v.hasStops()) {
+        where = range("bar", "bars", v.barsOnScreen(), v.barCount());
+        if (v.staffCount() > 0) where += "  " + range("staff", "staves", v.stavesOnScreen(), v.staffCount());
+        keys = "arrows/hjkl bar/staff  Shift+arrows/PgUp/PgDn page  Home/End  +/- zoom  q quit";
+    } else {
+        const std::string across = position(v.x(), v.maxX(), "left", "right", " across");
+        const std::string down = position(v.y(), v.maxY(), "top", "bottom", " down");
+        if (across.empty() && down.empty())
+            where = "all";
+        else
+            where = across + (across.empty() || down.empty() ? "" : ", ") + down;
+        keys = "arrows/hjkl move  PgUp/PgDn page  Home/End  +/- zoom  q quit";
+    }
     const long zoomPercent = std::lround(v.zoom() / v.startZoom() * 100);
-    std::string s = " " + name + "  " + where + "  zoom " + std::to_string(zoomPercent) +
-                    "%    arrows/hjkl move  PgUp/PgDn page  Home/End  +/- zoom  q quit";
+    std::string s = " " + name + "  " + where + "  zoom " + std::to_string(zoomPercent) + "%    " + keys;
     s.resize(size_t(std::max(0, width)), ' ');
     return s;
 }
@@ -83,6 +96,16 @@ double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const Pa
     const double fitHeightScale = layout.imageH / docH;
     if (fitHeightScale > scale) scale = std::min(fitHeightScale, 2 * scale);
     return scale / fitWidthScale;
+}
+
+View::Stops scoreStops(const ScoreLayout& layout, double docHeight) {
+    View::Stops s;
+    s.bars = layout.barStarts;
+    s.barsEnd = layout.end;
+    for (const ScoreLayout::Staff& staff : layout.staves) s.staves.push_back(staff.bandTop);
+    s.stavesEnd = docHeight;
+    s.margin = 0.8 * layout.staffSpace;
+    return s;
 }
 
 bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptions& opt) {
@@ -99,6 +122,10 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
     else if (opt.staffSpaceUnits > 0)
         zoom = scoreStartZoom(doc.width(), doc.height(), opt.staffSpaceUnits, layout, rowPx);
     View view(doc.width(), doc.height(), layout.imageW, layout.imageH, zoom);
+    if (!opt.stops.bars.empty()) {
+        view.setStops(opt.stops);
+        view.goTo(opt.startBar, opt.startStaff);
+    }
 
     FullScreen fullScreen;
     bool dirty = true, clear = true;

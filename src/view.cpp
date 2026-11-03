@@ -1,6 +1,60 @@
 #include "view.hpp"
 
 #include <algorithm>
+#include <limits>
+
+namespace {
+
+// One direction's stops, measured in pixels at the current scale.
+struct Axis {
+    const std::vector<double>& starts;  // image units
+    double end;                         // image units
+    double margin;                      // image units
+    double scale;
+
+    int count() const { return int(starts.size()); }
+    // Where the view goes to show item i first. The first item shows everything before it too.
+    double target(int i) const { return i == 0 ? 0 : (starts[size_t(i)] - margin) * scale; }
+    double itemEnd(int i) const { return (i + 1 < count() ? starts[size_t(i) + 1] : end) * scale; }
+
+    double next(double pos) const {
+        for (int i = 0; i < count(); ++i)
+            if (target(i) > pos + 0.5) return target(i);
+        return std::numeric_limits<double>::max();  // past the last: clamped to the far edge
+    }
+    double previous(double pos) const {
+        for (int i = count() - 1; i >= 0; --i)
+            if (target(i) < pos - 0.5) return target(i);
+        return 0;
+    }
+    // A screen on: the last item that starts on screen comes first (or the next, if that's this one).
+    double pageForward(double pos, double screen) const {
+        int last = -1;
+        for (int i = 0; i < count(); ++i)
+            if (starts[size_t(i)] * scale < pos + screen) last = i;
+        if (last < 0 || target(last) <= pos + 0.5) return next(pos);
+        return target(last);
+    }
+    // A screen back: as far as possible while what was first stays on screen.
+    double pageBack(double pos, double screen) const {
+        for (int i = 0; i < count(); ++i)
+            if (target(i) >= pos - screen) return target(i) < pos - 0.5 ? target(i) : previous(pos);
+        return previous(pos);
+    }
+    std::pair<int, int> onScreen(double pos, double screen) const {
+        int first = 0, last = 0;
+        for (int i = 0; i < count(); ++i) {
+            // The margin left of a bar shows the end of the one before; that doesn't count.
+            if (starts[size_t(i)] * scale < pos + screen && itemEnd(i) > pos + margin * scale + 0.5) {
+                if (first == 0) first = i + 1;
+                last = i + 1;
+            }
+        }
+        return {first, last};
+    }
+};
+
+}  // namespace
 
 View::View(double docW, double docH, int screenW, int screenH, double zoom)
     : docW_(std::max(docW, 1e-6)), docH_(std::max(docH, 0.0)), screenW_(std::max(1, screenW)),
@@ -34,6 +88,27 @@ bool View::apply(Key k) {
     const double oldX = x_, oldY = y_, oldZoom = zoom_;
     const double lineX = screenW_ * kLineFraction, lineY = screenH_ * kLineFraction;
     const double pageX = screenW_ * kPageFraction, pageY = screenH_ * kPageFraction;
+    if (hasStops()) {
+        const Axis bars{stops_.bars, stops_.barsEnd, stops_.margin, scale()};
+        const Axis staves{stops_.staves, stops_.stavesEnd, 0, scale()};
+        switch (k) {
+            case Key::Left: x_ = bars.previous(x_); break;
+            case Key::Right: x_ = bars.next(x_); break;
+            case Key::PageLeft: x_ = bars.pageBack(x_, screenW_); break;
+            case Key::PageRight: x_ = bars.pageForward(x_, screenW_); break;
+            case Key::Home: x_ = 0; break;
+            case Key::End: x_ = maxX(); break;
+            case Key::Up: y_ = staves.previous(y_); break;
+            case Key::Down: y_ = staves.next(y_); break;
+            case Key::PageUp: y_ = staves.pageBack(y_, screenH_); break;
+            case Key::PageDown: y_ = staves.pageForward(y_, screenH_); break;
+            case Key::ZoomIn: setZoom(zoom_ * kZoomStep); break;
+            case Key::ZoomOut: setZoom(zoom_ / kZoomStep); break;
+            default: break;
+        }
+        clamp();
+        return x_ != oldX || y_ != oldY || zoom_ != oldZoom;
+    }
     switch (k) {
         case Key::Left: x_ -= lineX; break;
         case Key::Right: x_ += lineX; break;
@@ -63,5 +138,24 @@ void View::resize(int screenW, int screenH) {
     screenH_ = std::max(1, screenH);
     x_ = ix * scale();
     y_ = iy * scale();
+    clamp();
+}
+
+void View::setStops(Stops stops) { stops_ = std::move(stops); }
+
+std::pair<int, int> View::barsOnScreen() const {
+    return Axis{stops_.bars, stops_.barsEnd, stops_.margin, scale()}.onScreen(x_, screenW_);
+}
+
+std::pair<int, int> View::stavesOnScreen() const {
+    return Axis{stops_.staves, stops_.stavesEnd, 0, scale()}.onScreen(y_, screenH_);
+}
+
+void View::goTo(int bar, int staff) {
+    if (!hasStops()) return;
+    const Axis bars{stops_.bars, stops_.barsEnd, stops_.margin, scale()};
+    const Axis staves{stops_.staves, stops_.stavesEnd, 0, scale()};
+    x_ = bars.target(std::clamp(bar, 1, bars.count()) - 1);
+    if (staves.count() > 0) y_ = staves.target(std::clamp(staff, 1, staves.count()) - 1);
     clamp();
 }

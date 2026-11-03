@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,48 @@ TEST_SUITE("engraving") {
         CHECK(doc->splitInto(".system") == 0);
         const Canvas c = doc->render(1, 0, 0, 200, 80);
         CHECK(c.at(100, 20) == 255);  // a staff line
+    }
+
+    TEST_CASE("finds the bars and staves of a grand staff") {
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        std::string error;
+        const auto doc = SvgDocument::fromData(r.svg, error);
+        REQUIRE(doc);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        REQUIRE(layout->barStarts.size() == 3);
+        CHECK(layout->barStarts[0] < layout->barStarts[1]);
+        CHECK(layout->barStarts[1] < layout->barStarts[2]);
+        CHECK(layout->end > layout->barStarts[2]);
+        CHECK(layout->staffSpace == doctest::Approx(kStaffSpaceUnits).epsilon(0.05));
+        REQUIRE(layout->staves.size() == 2);
+        for (const ScoreLayout::Staff& staff : layout->staves)
+            CHECK(staff.bottom - staff.top == doctest::Approx(4 * layout->staffSpace));  // five lines
+        CHECK(layout->staves[0].bottom < layout->staves[1].top);
+        // The bands cover the whole height without gaps or overlaps.
+        CHECK(layout->staves[0].bandTop == 0);
+        CHECK(layout->staves[0].bandBottom == layout->staves[1].bandTop);
+        CHECK(layout->staves[1].bandBottom == doc->height());
+    }
+
+    TEST_CASE("finds the four bars of the one-staff scale") {
+        const EngraveResult r = engraveScore(testData("scale.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        std::string error;
+        const auto doc = SvgDocument::fromData(r.svg, error);
+        REQUIRE(doc);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        CHECK(layout->barStarts.size() == 4);
+        CHECK(layout->staves.size() == 1);
+    }
+
+    TEST_CASE("an SVG that isn't a Verovio score has no layout") {
+        std::string error;
+        const auto doc = SvgDocument::fromFile(testData("staff-note.svg"), error);
+        REQUIRE(doc);
+        CHECK(!findScoreLayout(*doc));
     }
 
     TEST_CASE("a missing file is an error that names it") {

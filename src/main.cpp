@@ -32,6 +32,7 @@ const char* const kUsage =
     "                   shown full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, q quits\n"
     "  --svg FILE       treat FILE as an SVG, whatever its extension\n"
     "  --width N        how wide to draw it at first, in pixels\n"
+    "  --bar N, --staff N  for a score: start at this bar and staff (counting from 1)\n"
     "  --print          print it instead, as wide as the terminal (always the case when output isn't a\n"
     "                   terminal)\n"
     "  --verovio-data DIR  where Verovio's music fonts are (default: verovio-data next to stave)\n"
@@ -102,7 +103,7 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
 int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
     std::optional<std::string> file, dataDir;
-    std::optional<int> width;
+    std::optional<int> width, startBar, startStaff;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         const bool hasValue = i + 1 < argc;
@@ -133,6 +134,12 @@ int run(int argc, char** argv) {
             if (!width || *width < 1 || *width > kMaxImageSide)
                 return usageError("--width needs a whole number from 1 to " + std::to_string(kMaxImageSide) +
                                   ", not '" + argv[i] + "'");
+        } else if (arg == "--bar" || arg == "--staff") {
+            if (!hasValue) return usageError(std::string(arg) + " needs a number");
+            std::optional<int>& target = arg == "--bar" ? startBar : startStaff;
+            target = parseInt(argv[++i]);
+            if (!target || *target < 1)
+                return usageError(std::string(arg) + " needs a whole number from 1, not '" + argv[i] + "'");
         } else if (!arg.empty() && arg[0] == '-') {
             return usageError("unknown option '" + std::string(arg) + "'");
         } else {
@@ -144,6 +151,8 @@ int run(int argc, char** argv) {
         return usageError("use only one of FILE, --test-pattern and --terminal-info");
     if ((width || printRequested || dataDir) && !file)
         return usageError("--width, --print and --verovio-data only apply when showing a file");
+    if ((startBar || startStaff) && (!file || forceSvg || isSvgFile(*file)))
+        return usageError("--bar and --staff only apply to scores");
     if (!testPatternRequested && !file && !infoRequested) {
         std::fputs(kUsage, stdout);
         return 0;
@@ -157,6 +166,16 @@ int run(int argc, char** argv) {
         doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error);
         if (!doc) {
             std::fprintf(stderr, "stave: %s\n", error.c_str());
+            return 1;
+        }
+    }
+    std::optional<ScoreLayout> layout;
+    if (doc && !isSvg) {
+        layout = findScoreLayout(*doc);
+        const int bars = layout ? int(layout->barStarts.size()) : 0, staves = layout ? int(layout->staves.size()) : 0;
+        if (layout && (startBar.value_or(1) > bars || startStaff.value_or(1) > staves)) {
+            std::fprintf(stderr, "stave: %s has %d bar%s and %d stave%s\n", file->c_str(), bars, bars == 1 ? "" : "s",
+                         staves, staves == 1 ? "" : "s");
             return 1;
         }
     }
@@ -175,7 +194,12 @@ int run(int argc, char** argv) {
         opt.ink = colours.ink;
         opt.paper = colours.paper;
         opt.startWidth = width.value_or(0);
-        opt.staffSpaceUnits = isSvg ? 0 : kStaffSpaceUnits;
+        if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
+        if (layout) {
+            opt.stops = scoreStops(*layout, doc->height());
+            opt.startBar = startBar.value_or(1);
+            opt.startStaff = startStaff.value_or(1);
+        }
         if (runPager(*doc, term, opt)) return 0;
         // Couldn't read keys after all: fall through and print instead.
     }
