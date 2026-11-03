@@ -57,6 +57,9 @@ struct InkAndPaper {
 // be read on any theme.
 InkAndPaper chooseColours(const TerminalInfo&);
 
+// Near-black ink on a cream page, like printed music, whatever the terminal's colours.
+constexpr InkAndPaper kPaperColours{{25, 25, 30}, {250, 247, 238}, true};
+
 // How images are sent to the terminal.
 enum class Output {
     Sixel,    // bands of six-pixel columns, in up to 256 colours; widely supported

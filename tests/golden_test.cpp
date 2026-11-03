@@ -73,10 +73,10 @@ Canvas scoreFrame(const std::string& name, int cols, int rows, int cellW, int ce
     const PagerLayout layout = pagerLayout(cols, rows, cellW, cellH);
     const std::optional<ScoreLayout> score = findScoreLayout(*doc);
     REQUIRE(score);
-    View v(doc->width(), doc->height(), layout.imageW, layout.imageH,
-           scoreStartZoom(doc->width(), doc->height(), score->staffSpace, layout,
-                          readableStaffSpace(Output::Sixel, cellH)));
-    v.setStops(scoreStops(*score, doc->height()));
+    PagerOptions opt;
+    opt.staffSpaceUnits = score->staffSpace;
+    opt.stops = scoreStops(*score, doc->height());
+    View v = startView(*doc, opt, layout, cellH);
     for (Key k : keys) v.apply(k);
     return doc->render(v.scale(), v.x(), v.y(), layout.imageW, layout.imageH);
 }
@@ -168,5 +168,12 @@ TEST_SUITE("golden scores") {
         dark.bg = RGB{12, 12, 12};
         const InkAndPaper c = chooseColours(dark);
         checkGolden("score-scale-dark", throughSixel(wholeScore("scale.musicxml", 0.75), c.ink, c.paper, c.opaque));
+    }
+}
+
+TEST_SUITE("golden scores") {
+    TEST_CASE("a score with --paper: dark ink on a cream page") {
+        const Canvas c = wholeScore("piano.musicxml", 0.75);
+        checkGolden("score-piano-paper", throughSixel(c, kPaperColours.ink, kPaperColours.paper, kPaperColours.opaque));
     }
 }

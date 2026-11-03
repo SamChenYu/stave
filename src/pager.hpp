@@ -51,6 +51,11 @@ struct PagerOptions {
     int startBar = 1, startStaff = 1;  // for a score: where to start, counting from 1
 };
 
+// The view the pager opens with, for an image area of layout's size: the starting zoom (from
+// startWidth, or a readable staff size for a score, or fitting the width), and for a score its
+// stops and starting bar and staff. cellH is the terminal's cell height in pixels (0 if unknown).
+View startView(const SvgDocument&, const PagerOptions&, const PagerLayout&, int cellH);
+
 // Shows the document full screen, on the terminal's alternate screen, until the user quits.
 // Needs an interactive terminal; returns false (having changed nothing) if input can't be read.
 bool runPager(const SvgDocument&, const TerminalInfo&, const PagerOptions&);

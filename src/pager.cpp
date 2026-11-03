@@ -139,6 +139,21 @@ View::Stops scoreStops(const ScoreLayout& layout, double docHeight) {
     return s;
 }
 
+View startView(const SvgDocument& doc, const PagerOptions& opt, const PagerLayout& layout, int cellH) {
+    double zoom = 1;
+    if (opt.startWidth > 0)
+        zoom = double(opt.startWidth) / layout.imageW;
+    else if (opt.staffSpaceUnits > 0)
+        zoom = scoreStartZoom(doc.width(), doc.height(), opt.staffSpaceUnits, layout,
+                              readableStaffSpace(opt.output, cellH));
+    View view(doc.width(), doc.height(), layout.imageW, layout.imageH, zoom);
+    if (!opt.stops.bars.empty()) {
+        view.setStops(opt.stops);
+        view.goTo(opt.startBar, opt.startStaff);
+    }
+    return view;
+}
+
 bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptions& opt) {
     RawInput in;
     if (!in.ok()) return false;
@@ -146,17 +161,7 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
     WindowSize size = queryWindowSize();
     int cols = size.cols > 0 ? size.cols : 80, rows = size.rows > 0 ? size.rows : 24;
     PagerLayout layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output);
-    double zoom = 1;
-    if (opt.startWidth > 0)
-        zoom = double(opt.startWidth) / layout.imageW;
-    else if (opt.staffSpaceUnits > 0)
-        zoom = scoreStartZoom(doc.width(), doc.height(), opt.staffSpaceUnits, layout,
-                              readableStaffSpace(opt.output, term.cellH));
-    View view(doc.width(), doc.height(), layout.imageW, layout.imageH, zoom);
-    if (!opt.stops.bars.empty()) {
-        view.setStops(opt.stops);
-        view.goTo(opt.startBar, opt.startStaff);
-    }
+    View view = startView(doc, opt, layout, term.cellH);
 
     FullScreen fullScreen(opt.output);
     bool dirty = true, clear = true;

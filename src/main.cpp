@@ -34,6 +34,7 @@ const char* const kUsage =
     "  --width N        how wide to draw it at first, in pixels\n"
     "  --bar N, --staff N  for a score: start at this bar and staff (counting from 1)\n"
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
+    "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
     "  --print          print it instead, as wide as the terminal (always the case when output isn't a\n"
     "                   terminal)\n"
     "  --verovio-data DIR  where Verovio's music fonts are (default: verovio-data next to stave)\n"
@@ -105,6 +106,7 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
 
 int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
+    bool paperRequested = false;
     std::optional<Output> forcedOutput;
     std::optional<std::string> file, dataDir;
     std::optional<int> width, startBar, startStaff;
@@ -124,6 +126,8 @@ int run(int argc, char** argv) {
             infoRequested = true;
         } else if (arg == "--sixel" || arg == "--kitty" || arg == "--braille") {
             forcedOutput = arg == "--sixel" ? Output::Sixel : arg == "--kitty" ? Output::Kitty : Output::Braille;
+        } else if (arg == "--paper") {
+            paperRequested = true;
         } else if (arg == "--print") {
             printRequested = true;
         } else if (arg == "--svg") {
@@ -196,7 +200,7 @@ int run(int argc, char** argv) {
         printTerminalInfo(term);
         return 0;
     }
-    const InkAndPaper colours = chooseColours(term);
+    const InkAndPaper colours = paperRequested ? kPaperColours : chooseColours(term);
     const Output output = forcedOutput.value_or(chooseOutput(term));
 
     if (doc && !printRequested && isInteractive()) {
