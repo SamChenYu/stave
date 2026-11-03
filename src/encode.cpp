@@ -14,6 +14,29 @@ RGB shade(RGB ink, RGB paper, int coverage) {
     return {mix(paper.r, ink.r, coverage), mix(paper.g, ink.g, coverage), mix(paper.b, ink.b, coverage)};
 }
 
+std::string base64(const std::string& in) {
+    static const char* const kTable = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((in.size() + 2) / 3 * 4);
+    size_t i = 0;
+    for (; i + 2 < in.size(); i += 3) {
+        const uint32_t v = uint32_t(uint8_t(in[i])) << 16 | uint32_t(uint8_t(in[i + 1])) << 8 | uint8_t(in[i + 2]);
+        out += kTable[v >> 18];
+        out += kTable[(v >> 12) & 63];
+        out += kTable[(v >> 6) & 63];
+        out += kTable[v & 63];
+    }
+    if (i < in.size()) {  // one or two bytes left: pad with '='
+        const bool two = i + 1 < in.size();
+        const uint32_t v = uint32_t(uint8_t(in[i])) << 16 | (two ? uint32_t(uint8_t(in[i + 1])) << 8 : 0);
+        out += kTable[v >> 18];
+        out += kTable[(v >> 12) & 63];
+        out += two ? kTable[(v >> 6) & 63] : '=';
+        out += '=';
+    }
+    return out;
+}
+
 void appendInt(std::string& out, int v) {
     char buf[12];
     auto r = std::to_chars(buf, buf + sizeof buf, v);
@@ -94,4 +117,62 @@ std::string encodeSixel(const Canvas& c, RGB ink, RGB paper, bool opaque) {
     }
     out += "\x1b\\";  // end sixel
     return out;
+}
+
+std::string encodeKitty(const Canvas& c, RGB ink, RGB paper, bool opaque, bool moveCursor) {
+    const int bytesPerPixel = opaque ? 3 : 4;
+    std::string pixels(c.px.size() * size_t(bytesPerPixel), '\0');
+    for (size_t i = 0; i < c.px.size(); ++i) {
+        const RGB p = opaque ? shade(ink, paper, c.px[i]) : ink;
+        char* d = &pixels[i * size_t(bytesPerPixel)];
+        d[0] = char(p.r);
+        d[1] = char(p.g);
+        d[2] = char(p.b);
+        if (!opaque) d[3] = char(c.px[i]);
+    }
+    const std::string data = base64(pixels);
+    constexpr size_t kChunk = 4096;
+    std::string out;
+    for (size_t i = 0; i == 0 || i < data.size(); i += kChunk) {
+        out += "\x1b_G";
+        if (i == 0) {
+            // a=T: send and show it; f: 24-bit RGB or 32-bit RGBA; q=2: send no replies;
+            // C=1: leave the cursor where it is.
+            out += opaque ? "a=T,f=24,q=2," : "a=T,f=32,q=2,";
+            if (!moveCursor) out += "C=1,";
+            out += "s=";
+            appendInt(out, c.w);
+            out += ",v=";
+            appendInt(out, c.h);
+            out += ',';
+        }
+        out += i + kChunk < data.size() ? "m=1;" : "m=0;";  // m=1: more chunks follow
+        out.append(data, i, kChunk);
+        out += "\x1b\\";
+    }
+    return out;
+}
+
+std::vector<std::string> encodeBraille(const Canvas& c) {
+    // Which bit of a braille character raises the dot at (column dx, row dy) of its 2x4 cell.
+    static const uint8_t kBit[4][2] = {{0x01, 0x08}, {0x02, 0x10}, {0x04, 0x20}, {0x40, 0x80}};
+    std::vector<std::string> rows;
+    for (int y0 = 0; y0 < c.h; y0 += 4) {
+        std::string row;
+        row.reserve(size_t(c.w + 1) / 2 * 3);
+        for (int x0 = 0; x0 < c.w; x0 += 2) {
+            int dots = 0;
+            for (int dy = 0; dy < 4; ++dy)
+                for (int dx = 0; dx < 2; ++dx) {
+                    const int x = x0 + dx, y = y0 + dy;
+                    if (x < c.w && y < c.h && c.at(x, y) >= kBrailleThreshold) dots |= kBit[dy][dx];
+                }
+            const int cp = 0x2800 + dots;  // braille patterns start at U+2800; UTF-8 needs 3 bytes
+            row += char(0xE0 | (cp >> 12));
+            row += char(0x80 | ((cp >> 6) & 0x3F));
+            row += char(0x80 | (cp & 0x3F));
+        }
+        rows.push_back(std::move(row));
+    }
+    return rows;
 }

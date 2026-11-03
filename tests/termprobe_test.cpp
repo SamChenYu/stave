@@ -70,6 +70,43 @@ TEST_SUITE("terminal replies") {
     }
 }
 
+TEST_SUITE("graphics support") {
+    TEST_CASE("a 4 among the device attributes means sixel") {
+        CHECK(parseTerminalReplies("\x1b[?61;4;6;7c").sixel);
+        CHECK(!parseTerminalReplies("\x1b[?61;6;7c").sixel);
+        CHECK(!parseTerminalReplies("\x1b[?14;42c").sixel);  // 14 and 42 aren't 4
+        CHECK(parseTerminalReplies("\x1b[?4c").sixel);
+    }
+
+    TEST_CASE("an OK to the kitty query means kitty graphics") {
+        CHECK(parseTerminalReplies("\x1b_Gi=31;OK\x1b\\\x1b[?62c").kitty);
+        CHECK(!parseTerminalReplies("\x1b_Gi=31;ENOTSUPPORTED:x\x1b\\\x1b[?62c").kitty);
+        CHECK(!parseTerminalReplies("\x1b[?62c").kitty);
+    }
+
+    TEST_CASE("the best output: kitty, then sixel, then braille") {
+        TerminalInfo t;
+        t.answered = true;
+        t.kitty = t.sixel = true;
+        CHECK(chooseOutput(t) == Output::Kitty);
+        t.kitty = false;
+        CHECK(chooseOutput(t) == Output::Sixel);
+        t.sixel = false;
+        CHECK(chooseOutput(t) == Output::Braille);
+    }
+
+    TEST_CASE("no answer at all (or not a terminal) keeps sixel") {
+        CHECK(chooseOutput(TerminalInfo{}) == Output::Sixel);
+    }
+
+    TEST_CASE("the replies are carried into the terminal info") {
+        const TerminalInfo t = combineTerminalInfo({80, 24, 0, 0}, parseTerminalReplies("\x1b_Gi=31;OK\x1b\\\x1b[?4c"));
+        CHECK(t.answered);
+        CHECK(t.kitty);
+        CHECK(t.sixel);
+    }
+}
+
 TEST_SUITE("terminal info") {
     TEST_CASE("the terminal's cell size is used first") {
         const TerminalInfo t = combineTerminalInfo({120, 30, 0, 0}, parseTerminalReplies(kAllReplies));

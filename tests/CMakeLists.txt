@@ -11,6 +11,7 @@ add_executable(stave_tests
     support/golden.cpp
     support/image.cpp
     support/sixel_decoder.cpp
+    encode_test.cpp
     golden_test.cpp
     keys_test.cpp
     pager_test.cpp

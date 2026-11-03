@@ -1,11 +1,13 @@
 #include "termprobe.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <string>
 #include <system_error>
 
-const char* const kTerminalQueries = "\x1b[16t\x1b[14t\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b[c";
+const char* const kTerminalQueries =
+    "\x1b[16t\x1b[14t\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
 
 namespace {
 
@@ -52,11 +54,20 @@ std::optional<RGB> findColourReply(std::string_view s, std::string_view prefix) 
     return RGB{v[0], v[1], v[2]};
 }
 
-// The device-attributes reply: ESC [ ? digits and semicolons c.
-bool hasDeviceAttributes(std::string_view s) {
+// The device-attributes reply, ESC [ ? digits and semicolons c: its numbers, or nothing.
+std::optional<std::string_view> deviceAttributes(std::string_view s) {
     for (size_t at = s.find("\x1b[?"); at != std::string_view::npos; at = s.find("\x1b[?", at + 1)) {
         const size_t end = s.find_first_not_of("0123456789;", at + 3);
-        if (end != std::string_view::npos && s[end] == 'c') return true;
+        if (end != std::string_view::npos && s[end] == 'c') return s.substr(at + 3, end - at - 3);
+    }
+    return std::nullopt;
+}
+
+bool hasAttribute(std::string_view attributes, std::string_view wanted) {
+    for (size_t start = 0; start <= attributes.size();) {
+        const size_t end = std::min(attributes.find(';', start), attributes.size());
+        if (attributes.substr(start, end - start) == wanted) return true;
+        start = end + 1;
     }
     return false;
 }
@@ -65,7 +76,10 @@ bool hasDeviceAttributes(std::string_view s) {
 
 TerminalReplies parseTerminalReplies(std::string_view received) {
     TerminalReplies r;
-    r.complete = hasDeviceAttributes(received);
+    const std::optional<std::string_view> attributes = deviceAttributes(received);
+    r.complete = attributes.has_value();
+    r.sixel = attributes && hasAttribute(*attributes, "4");
+    r.kitty = received.find("\x1b_Gi=31;OK") != std::string_view::npos;
     findSizeReply(received, "\x1b[6;", r.cellW, r.cellH);
     findSizeReply(received, "\x1b[4;", r.windowW, r.windowH);
     r.fg = findColourReply(received, "\x1b]10;rgb:");
@@ -88,6 +102,9 @@ TerminalInfo combineTerminalInfo(const WindowSize& ws, const TerminalReplies& r)
             t.cellH = h / t.rows;
         }
     }
+    t.answered = r.complete;
+    t.sixel = r.sixel;
+    t.kitty = r.kitty;
     t.fg = r.fg;
     t.bg = r.bg;
     return t;
@@ -114,4 +131,19 @@ TerminalInfo probeTerminal(int timeoutMs) {
 InkAndPaper chooseColours(const TerminalInfo& t) {
     if (t.fg && t.bg) return {*t.fg, *t.bg, false};
     return {{0, 0, 0}, {255, 255, 255}, true};
+}
+
+const char* outputName(Output o) {
+    switch (o) {
+        case Output::Sixel: return "sixel";
+        case Output::Kitty: return "kitty";
+        case Output::Braille: return "braille";
+    }
+    return "";
+}
+
+Output chooseOutput(const TerminalInfo& t) {
+    if (t.kitty) return Output::Kitty;
+    if (t.sixel || !t.answered) return Output::Sixel;
+    return Output::Braille;
 }

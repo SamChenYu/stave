@@ -33,6 +33,7 @@ const char* const kUsage =
     "  --svg FILE       treat FILE as an SVG, whatever its extension\n"
     "  --width N        how wide to draw it at first, in pixels\n"
     "  --bar N, --staff N  for a score: start at this bar and staff (counting from 1)\n"
+    "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --print          print it instead, as wide as the terminal (always the case when output isn't a\n"
     "                   terminal)\n"
     "  --verovio-data DIR  where Verovio's music fonts are (default: verovio-data next to stave)\n"
@@ -62,6 +63,9 @@ void printTerminalInfo(const TerminalInfo& t) {
     std::printf("background: %s\n", describe(t.bg).c_str());
     std::printf("drawing:    %s\n", t.fg && t.bg ? "in the terminal's text colour, on its own background"
                                                  : "black on a white page (the terminal's colours are unknown)");
+    std::printf("graphics:   sixel %s, kitty %s%s\n", t.sixel ? "yes" : "no", t.kitty ? "yes" : "no",
+                t.answered ? "" : " (the terminal didn't answer)");
+    std::printf("output:     %s\n", outputName(chooseOutput(t)));
 }
 
 int usageError(const std::string& message) {
@@ -101,6 +105,7 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
 
 int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
+    std::optional<Output> forcedOutput;
     std::optional<std::string> file, dataDir;
     std::optional<int> width, startBar, startStaff;
     for (int i = 1; i < argc; ++i) {
@@ -117,6 +122,8 @@ int run(int argc, char** argv) {
             testPatternRequested = true;
         } else if (arg == "--terminal-info") {
             infoRequested = true;
+        } else if (arg == "--sixel" || arg == "--kitty" || arg == "--braille") {
+            forcedOutput = arg == "--sixel" ? Output::Sixel : arg == "--kitty" ? Output::Kitty : Output::Braille;
         } else if (arg == "--print") {
             printRequested = true;
         } else if (arg == "--svg") {
@@ -190,12 +197,15 @@ int run(int argc, char** argv) {
         return 0;
     }
     const InkAndPaper colours = chooseColours(term);
+    const Output output = forcedOutput.value_or(chooseOutput(term));
 
     if (doc && !printRequested && isInteractive()) {
         PagerOptions opt;
         opt.name = std::filesystem::path(*file).filename().string();
+        opt.output = output;
         opt.ink = colours.ink;
         opt.paper = colours.paper;
+        opt.transparent = !colours.opaque;
         opt.startWidth = width.value_or(0);
         if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
         if (layout) {
@@ -209,7 +219,9 @@ int run(int argc, char** argv) {
 
     std::optional<Canvas> canvas;
     if (doc) {
-        const int defaultWidth = term.pixelWidth() > 0 ? std::min(term.pixelWidth(), kMaxImageSide) : kFallbackWidth;
+        // Braille's pixels are dots, two to a character; the others draw real pixels.
+        int defaultWidth = term.pixelWidth() > 0 ? std::min(term.pixelWidth(), kMaxImageSide) : kFallbackWidth;
+        if (output == Output::Braille) defaultWidth = 2 * (term.cols > 0 ? term.cols : 80);
         SvgRenderResult r = renderSvgDocument(*doc, width.value_or(defaultWidth));
         if (!r.canvas) {
             std::fprintf(stderr, "stave: %s: %s\n", file->c_str(), r.error.c_str());
@@ -220,7 +232,18 @@ int run(int argc, char** argv) {
         canvas = testPattern();
     }
 
-    if (!writeAll(encodeSixel(*canvas, colours.ink, colours.paper, colours.opaque) + "\n")) {
+    std::string image;
+    switch (output) {
+        case Output::Sixel: image = encodeSixel(*canvas, colours.ink, colours.paper, colours.opaque); break;
+        case Output::Kitty:
+            image = encodeKitty(*canvas, colours.ink, colours.paper, colours.opaque, /*moveCursor=*/true);
+            break;
+        case Output::Braille:
+            for (const std::string& line : encodeBraille(*canvas)) image += line + "\n";
+            if (!image.empty()) image.pop_back();
+            break;
+    }
+    if (!writeAll(image + "\n")) {
         std::fputs("stave: couldn't write to stdout\n", stderr);
         return 1;
     }

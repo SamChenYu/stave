@@ -2,8 +2,8 @@
 #include <memory>
 #include <string>
 
-// On Windows, turns on escape-sequence handling for the console while it exists, and puts the
-// console back as it was when destroyed. Does nothing elsewhere.
+// On Windows, turns on escape-sequence handling and UTF-8 output for the console while it exists,
+// and puts the console back as it was when destroyed. Does nothing elsewhere.
 class ConsoleSetup {
 public:
     ConsoleSetup();
@@ -14,6 +14,7 @@ public:
 private:
     unsigned long savedMode_ = 0;
     bool restore_ = false;
+    unsigned savedCodePage_ = 0;  // 0: unchanged
 };
 
 // Writes raw bytes straight to stdout, bypassing C stdio buffering. False if writing failed.

@@ -74,7 +74,8 @@ Canvas scoreFrame(const std::string& name, int cols, int rows, int cellW, int ce
     const std::optional<ScoreLayout> score = findScoreLayout(*doc);
     REQUIRE(score);
     View v(doc->width(), doc->height(), layout.imageW, layout.imageH,
-           scoreStartZoom(doc->width(), doc->height(), score->staffSpace, layout, cellH));
+           scoreStartZoom(doc->width(), doc->height(), score->staffSpace, layout,
+                          readableStaffSpace(Output::Sixel, cellH)));
     v.setStops(scoreStops(*score, doc->height()));
     for (Key k : keys) v.apply(k);
     return doc->render(v.scale(), v.x(), v.y(), layout.imageW, layout.imageH);

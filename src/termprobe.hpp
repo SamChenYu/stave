@@ -10,6 +10,9 @@ struct TerminalInfo {
     int cols = 0, rows = 0;
     int cellW = 0, cellH = 0;   // pixel size of one character cell
     std::optional<RGB> fg, bg;  // text and background colours
+    bool answered = false;      // the terminal replied at all
+    bool sixel = false;         // it can show sixel images
+    bool kitty = false;         // it can show kitty images
 
     int pixelWidth() const { return cols * cellW; }  // 0 if unknown
 };
@@ -19,8 +22,10 @@ struct TerminalInfo {
 //   CSI 14 t       text area size in pixels
 //   OSC 10 ; ?     text colour
 //   OSC 11 ; ?     background colour
-//   CSI c          device attributes, which every terminal answers. Terminals answer in order,
-//                  so its reply means all the others have arrived (or were never coming).
+//   APC G ... a=q  whether it can show kitty images (a 1x1 test image it's asked not to show)
+//   CSI c          device attributes, which every terminal answers; a 4 among them means sixel.
+//                  Terminals answer in order, so this reply means all the others have arrived
+//                  (or were never coming).
 extern const char* const kTerminalQueries;
 
 struct TerminalReplies {
@@ -28,6 +33,7 @@ struct TerminalReplies {
     int cellW = 0, cellH = 0;      // from CSI 16 t
     int windowW = 0, windowH = 0;  // from CSI 14 t
     std::optional<RGB> fg, bg;
+    bool sixel = false, kitty = false;
 };
 
 // Picks the answers out of whatever the terminal has sent so far, ignoring anything else.
@@ -50,3 +56,15 @@ struct InkAndPaper {
 // so the image looks like part of the terminal. Otherwise black ink on a white page, which can
 // be read on any theme.
 InkAndPaper chooseColours(const TerminalInfo&);
+
+// How images are sent to the terminal.
+enum class Output {
+    Sixel,    // bands of six-pixel columns, in up to 256 colours; widely supported
+    Kitty,    // raw pixels with transparency; kitty, Ghostty, WezTerm
+    Braille,  // braille characters, 2x4 dots each, in the text colour; works almost anywhere
+};
+const char* outputName(Output);
+
+// Kitty if the terminal can show it (its soft edges blend with any background), then sixel, then
+// braille. A terminal that didn't reply at all (or isn't a terminal, like a file) gets sixel.
+Output chooseOutput(const TerminalInfo&);

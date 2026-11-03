@@ -26,10 +26,13 @@ ConsoleSetup::ConsoleSetup() {
         savedMode_ = mode;
         restore_ = SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
     }
+    const UINT codePage = GetConsoleOutputCP();  // braille characters are written as UTF-8
+    if (codePage != 0 && codePage != CP_UTF8 && SetConsoleOutputCP(CP_UTF8)) savedCodePage_ = codePage;
 }
 
 ConsoleSetup::~ConsoleSetup() {
     if (restore_) SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), DWORD(savedMode_));
+    if (savedCodePage_ != 0) SetConsoleOutputCP(savedCodePage_);
 }
 
 bool writeAll(const std::string& s) {

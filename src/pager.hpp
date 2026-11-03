@@ -9,12 +9,13 @@
 
 // Where things go on a screen of cols x rows characters: the image on top, a status line on the
 // bottom row. cellW and cellH are one character's size in pixels, or 0 if unknown; then a typical
-// size is assumed and a spare row left, so a wrong guess can't push the screen up.
+// size is assumed and a spare row left, so a wrong guess can't push the screen up. For braille,
+// the image's "pixels" are dots: 2 across and 4 down per character, whatever the cell size.
 struct PagerLayout {
     int imageRows;       // text rows the image covers
-    int imageW, imageH;  // image size in pixels; the height is a whole number of sixel bands
+    int imageW, imageH;  // image size in pixels; for sixel and kitty, a whole number of sixel bands
 };
-PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH);
+PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output = Output::Sixel);
 
 // The status line, cut or padded to exactly `width` characters: the name, where the view is, the
 // zoom (100% being the size it opened at), and the keys. Where the view is, for a score: which bars
@@ -24,10 +25,15 @@ PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH);
 std::string statusLine(const std::string& name, const View&, int width);
 
 // The starting zoom for a score, which is one long system: fitting its width would make it tiny.
-// Instead each staff is drawn about two and a half text rows tall; and if the whole system then
-// fits on screen with room to spare, it's enlarged to fill the height, up to twice that size.
-// staffSpaceUnits is the image's units per staff space; rowPx is one text row in pixels.
-double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout&, int rowPx);
+// Instead each staff space is drawn spacePx pixels tall; and if the whole system then fits on
+// screen with room to spare, it's enlarged to fill the height, up to twice that size.
+// staffSpaceUnits is the image's units per staff space.
+double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout&, double spacePx);
+
+// A comfortable staff space to start at: a staff (four spaces) about two and a half text rows tall,
+// for sixel and kitty with cells cellH pixels tall (0 if unknown); four dots for braille, the least
+// that keeps the staff lines apart.
+double readableStaffSpace(Output, int cellH);
 
 // The View's stops for a score: each bar's start and each staff's band. Moving to a bar leaves room
 // to its left for the pinned column (see prepareForPaging) and 0.8 staff spaces, so its barline shows.
@@ -35,7 +41,9 @@ View::Stops scoreStops(const ScoreLayout&, double docHeight);
 
 struct PagerOptions {
     std::string name;             // shown in the status line
-    RGB ink, paper;               // paper is painted, so each frame fully covers the one before
+    Output output = Output::Sixel;
+    RGB ink, paper;               // sixel paints paper, so each frame fully covers the one before
+    bool transparent = false;     // kitty: leave paper unpainted, showing the terminal's background
     int startWidth = 0;           // how wide to draw the image at first, in pixels (0: see below)
     double staffSpaceUnits = 0;   // for a score: units per staff space, to start at a readable size;
                                   // 0 (and no startWidth): start fitting the screen's width

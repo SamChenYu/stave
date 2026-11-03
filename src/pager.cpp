@@ -15,13 +15,22 @@ constexpr int kPollMs = 100;                       // how often to check for a r
 
 std::string moveTo(int row, int col) { return "\x1b[" + std::to_string(row) + ";" + std::to_string(col) + "H"; }
 
+// Kitty keeps images until they're deleted: this deletes all of ours, without a reply.
+const char* const kDeleteKittyImages = "\x1b_Ga=d,d=A,q=2\x1b\\";
+
 // Switches to the alternate screen with the cursor hidden, and back again however the pager ends.
 class FullScreen {
 public:
-    FullScreen() { writeAll("\x1b[?1049h\x1b[?25l"); }
-    ~FullScreen() { writeAll("\x1b[?25h\x1b[?1049l"); }
+    explicit FullScreen(Output output) : output_(output) { writeAll("\x1b[?1049h\x1b[?25l"); }
+    ~FullScreen() {
+        if (output_ == Output::Kitty) writeAll(kDeleteKittyImages);
+        writeAll("\x1b[?25h\x1b[?1049l");
+    }
     FullScreen(const FullScreen&) = delete;
     FullScreen& operator=(const FullScreen&) = delete;
+
+private:
+    Output output_;
 };
 
 void drawFrame(const SvgDocument& doc, const View& v, const PagerLayout& layout, int cols, int rows,
@@ -29,7 +38,19 @@ void drawFrame(const SvgDocument& doc, const View& v, const PagerLayout& layout,
     const Canvas c = doc.render(v.scale(), v.x(), v.y(), layout.imageW, layout.imageH);
     std::string f = "\x1b[?2026h";  // synchronized update: the terminal shows the whole frame at once
     if (clear) f += "\x1b[2J";
-    f += moveTo(1, 1) + encodeSixel(c, opt.ink, opt.paper, /*opaque=*/true);
+    switch (opt.output) {
+        case Output::Sixel: f += moveTo(1, 1) + encodeSixel(c, opt.ink, opt.paper, /*opaque=*/true); break;
+        case Output::Kitty:
+            f += kDeleteKittyImages + moveTo(1, 1) +
+                 encodeKitty(c, opt.ink, opt.paper, /*opaque=*/!opt.transparent, /*moveCursor=*/false);
+            break;
+        case Output::Braille: {
+            const std::vector<std::string> lines = encodeBraille(c);
+            for (size_t r = 0; r < lines.size() && int(r) < layout.imageRows; ++r)
+                f += moveTo(int(r) + 1, 1) + lines[r];
+            break;
+        }
+    }
     // Reverse video, so the status line follows the terminal's own colours. It stops one column
     // short of the edge: writing the last cell of the last row can scroll the screen.
     f += moveTo(rows, 1) + "\x1b[2K\x1b[7m" + statusLine(opt.name, v, cols - 1) + "\x1b[0m";
@@ -39,11 +60,16 @@ void drawFrame(const SvgDocument& doc, const View& v, const PagerLayout& layout,
 
 }  // namespace
 
-PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH) {
+PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output) {
     const bool known = cellW > 0 && cellH > 0;
     const int cw = known ? cellW : kGuessCellW, ch = known ? cellH : kGuessCellH;
     PagerLayout l{};
     l.imageRows = std::max(1, rows - 1);
+    if (output == Output::Braille) {
+        l.imageW = std::clamp(std::max(1, cols) * 2, 1, kMaxImageSide);
+        l.imageH = std::clamp(l.imageRows * 4, 4, kMaxImageSide);
+        return l;
+    }
     const int rowsForImage = known ? l.imageRows : std::max(1, l.imageRows - 1);
     l.imageW = std::clamp(std::max(1, cols) * cw, 1, kMaxImageSide);
     l.imageH = std::clamp(rowsForImage * ch / 6 * 6, 6, kMaxImageSide / 6 * 6);  // sixel draws 6-pixel bands
@@ -90,9 +116,14 @@ std::string statusLine(const std::string& name, const View& v, int width) {
     return s;
 }
 
-double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout& layout, int rowPx) {
-    const double fitWidthScale = layout.imageW / docW;          // pixels per unit at zoom 1
-    double scale = 2.5 * rowPx / 4 / staffSpaceUnits;           // a staff (4 spaces) 2.5 rows tall
+double readableStaffSpace(Output output, int cellH) {
+    if (output == Output::Braille) return 4;
+    return 2.5 * (cellH > 0 ? cellH : kGuessCellH) / 4;
+}
+
+double scoreStartZoom(double docW, double docH, double staffSpaceUnits, const PagerLayout& layout, double spacePx) {
+    const double fitWidthScale = layout.imageW / docW;  // pixels per unit at zoom 1
+    double scale = spacePx / staffSpaceUnits;
     const double fitHeightScale = layout.imageH / docH;
     if (fitHeightScale > scale) scale = std::min(fitHeightScale, 2 * scale);
     return scale / fitWidthScale;
@@ -114,20 +145,20 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
 
     WindowSize size = queryWindowSize();
     int cols = size.cols > 0 ? size.cols : 80, rows = size.rows > 0 ? size.rows : 24;
-    PagerLayout layout = pagerLayout(cols, rows, term.cellW, term.cellH);
-    const int rowPx = term.cellH > 0 ? term.cellH : kGuessCellH;
+    PagerLayout layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output);
     double zoom = 1;
     if (opt.startWidth > 0)
         zoom = double(opt.startWidth) / layout.imageW;
     else if (opt.staffSpaceUnits > 0)
-        zoom = scoreStartZoom(doc.width(), doc.height(), opt.staffSpaceUnits, layout, rowPx);
+        zoom = scoreStartZoom(doc.width(), doc.height(), opt.staffSpaceUnits, layout,
+                              readableStaffSpace(opt.output, term.cellH));
     View view(doc.width(), doc.height(), layout.imageW, layout.imageH, zoom);
     if (!opt.stops.bars.empty()) {
         view.setStops(opt.stops);
         view.goTo(opt.startBar, opt.startStaff);
     }
 
-    FullScreen fullScreen;
+    FullScreen fullScreen(opt.output);
     bool dirty = true, clear = true;
     std::string pending;
     for (;;) {
@@ -152,7 +183,7 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
         if (size.cols > 0 && size.rows > 0 && (size.cols != cols || size.rows != rows)) {
             cols = size.cols;
             rows = size.rows;
-            layout = pagerLayout(cols, rows, term.cellW, term.cellH);
+            layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output);
             view.resize(layout.imageW, layout.imageH);
             dirty = clear = true;
         }

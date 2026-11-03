@@ -25,6 +25,13 @@ TEST_SUITE("pager layout") {
         CHECK(l.imageH == 18);
     }
 
+    TEST_CASE("for braille, the image is in dots: 2 across and 4 down per character") {
+        const PagerLayout l = pagerLayout(120, 30, 9, 19, Output::Braille);
+        CHECK(l.imageRows == 29);
+        CHECK(l.imageW == 240);
+        CHECK(l.imageH == 116);
+    }
+
     TEST_CASE("absurd sizes are capped") {
         const PagerLayout l = pagerLayout(100000, 100000, 50, 50);
         CHECK(l.imageW == kMaxImageSide);
@@ -108,19 +115,19 @@ TEST_SUITE("score zoom") {
     TEST_CASE("staves start about two and a half rows tall, not squeezed to fit the width") {
         // 2.5 rows x 19 pixels / 4 spaces = 11.875 pixels per space = 0.66 pixels per unit; the
         // system is then 198 pixels tall, more than twice short of 546, so it's doubled to 1.32.
-        const double zoom = scoreStartZoom(10000, 300, 18, kLayout, 19);
+        const double zoom = scoreStartZoom(10000, 300, 18, kLayout, 2.5 * 19 / 4);
         const double scale = zoom * kLayout.imageW / 10000;
         CHECK(scale == doctest::Approx(2 * 2.5 * 19 / 4 / 18));
     }
 
     TEST_CASE("a system that nearly fits is enlarged just enough to fill the height") {
-        const double zoom = scoreStartZoom(10000, 600, 18, kLayout, 19);  // 396 pixels tall at the start size
+        const double zoom = scoreStartZoom(10000, 600, 18, kLayout, 2.5 * 19 / 4);  // 396 pixels tall at the start size
         const double scale = zoom * kLayout.imageW / 10000;
         CHECK(scale == doctest::Approx(546.0 / 600));
     }
 
     TEST_CASE("a tall system, like a full orchestra, keeps the readable size and scrolls down") {
-        const double zoom = scoreStartZoom(10000, 3000, 18, kLayout, 19);
+        const double zoom = scoreStartZoom(10000, 3000, 18, kLayout, 2.5 * 19 / 4);
         const double scale = zoom * kLayout.imageW / 10000;
         CHECK(scale == doctest::Approx(2.5 * 19 / 4 / 18));
     }
