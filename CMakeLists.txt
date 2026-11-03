@@ -35,6 +35,7 @@ add_library(stave_core STATIC
     src/encode.cpp
     src/svgimage.cpp
     src/terminal.cpp
+    src/termprobe.cpp
     src/testpattern.cpp)
 target_include_directories(stave_core PUBLIC src)
 target_link_libraries(stave_core PUBLIC lunasvg::lunasvg)

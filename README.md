@@ -18,13 +18,16 @@ Needs a terminal that can show sixel graphics, such as Windows Terminal 1.22+, W
 iTerm2.
 
 ```
-stave --svg FILE             # draw an SVG, 800 pixels wide
-stave --svg FILE --width 400 # ...at another width (the height keeps the aspect ratio)
+stave --svg FILE             # draw an SVG as wide as the terminal
+stave --svg FILE --width 400 # ...or at another width (the height keeps the aspect ratio)
 stave --test-pattern         # a test image, to check that sixel works in this terminal
+stave --terminal-info        # what stave found out about this terminal
 ```
 
-Images are drawn as black ink on white paper for now. Colours in the SVG are ignored: what's
-drawn is how much ink covers each pixel, so the colours can follow the terminal's theme later.
+stave asks the terminal for its size in pixels and its text and background colours, and draws in
+those colours on the terminal's own background, so images match the theme. Colours in the SVG
+are ignored: what's drawn is how much ink covers each pixel. If the terminal doesn't answer (or
+the output isn't a terminal), images are 800 pixels wide, in black on a white page.
 
 ## Tests
 

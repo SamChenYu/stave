@@ -13,7 +13,8 @@ add_executable(stave_tests
     support/sixel_decoder.cpp
     golden_test.cpp
     sixel_test.cpp
-    svg_test.cpp)
+    svg_test.cpp
+    termprobe_test.cpp)
 target_include_directories(stave_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # plutovg (built as part of lunasvg) reads and writes the PNG files.
 target_link_libraries(stave_tests PRIVATE stave_core plutovg::plutovg doctest::doctest_with_main)

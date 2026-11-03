@@ -7,6 +7,7 @@
 #include "support/golden.hpp"
 #include "support/sixel_decoder.hpp"
 #include "svgimage.hpp"
+#include "termprobe.hpp"
 #include "testpattern.hpp"
 
 // Pixel comparisons against the expected images in tests/golden/: each case draws a known input,
@@ -49,5 +50,14 @@ TEST_SUITE("golden images") {
 
     TEST_CASE("SVG: colour is ignored, opacity becomes coverage") {
         checkGolden("svg-coverage", throughSixel(svgFromTestData("coverage.svg", 360), kBlack, kWhite, true));
+    }
+
+    TEST_CASE("SVG in a dark terminal's own colours") {
+        // What `stave --svg` draws when the terminal reports light grey text on near-black.
+        TerminalInfo dark;
+        dark.fg = RGB{204, 204, 204};
+        dark.bg = RGB{12, 12, 12};
+        const InkAndPaper c = chooseColours(dark);
+        checkGolden("svg-staff-note-dark", throughSixel(svgFromTestData("staff-note.svg", 400), c.ink, c.paper, c.opaque));
     }
 }

@@ -1,5 +1,6 @@
 #include <lunasvg.h>
 
+#include <algorithm>
 #include <charconv>
 #include <cstdio>
 #include <optional>
@@ -11,6 +12,7 @@
 #include "encode.hpp"
 #include "svgimage.hpp"
 #include "terminal.hpp"
+#include "termprobe.hpp"
 #include "testpattern.hpp"
 
 namespace {
@@ -18,12 +20,36 @@ namespace {
 const char* const kUsage =
     "usage: stave --svg FILE [--width N]\n"
     "       stave --test-pattern\n"
-    "  --svg FILE      draw an SVG file in the terminal\n"
-    "  --width N       how wide to draw it, in pixels (default 800)\n"
-    "  --test-pattern  draw a test image, to check that the terminal can show sixel graphics\n"
-    "  --version       print the versions of stave and its libraries\n";
+    "       stave --terminal-info\n"
+    "  --svg FILE       draw an SVG file in the terminal\n"
+    "  --width N        how wide to draw it, in pixels (default: the terminal's width)\n"
+    "  --test-pattern   draw a test image, to check that the terminal can show sixel graphics\n"
+    "  --terminal-info  show what stave found out about this terminal\n"
+    "  --version        print the versions of stave and its libraries\n";
 
-constexpr int kDefaultWidth = 800;  // until we can ask the terminal how wide it is
+constexpr int kFallbackWidth = 800;  // when the terminal doesn't say how wide it is
+
+std::string describe(const std::optional<RGB>& c) {
+    if (!c) return "unknown";
+    char buf[8];
+    std::snprintf(buf, sizeof buf, "#%02x%02x%02x", c->r, c->g, c->b);
+    return buf;
+}
+
+void printTerminalInfo(const TerminalInfo& t) {
+    if (t.cols > 0)
+        std::printf("size:       %d x %d characters\n", t.cols, t.rows);
+    else
+        std::printf("size:       unknown (not running in a terminal?)\n");
+    if (t.cellW > 0)
+        std::printf("cell:       %d x %d pixels, so %d pixels wide\n", t.cellW, t.cellH, t.pixelWidth());
+    else
+        std::printf("cell:       unknown, so images default to %d pixels wide\n", kFallbackWidth);
+    std::printf("text:       %s\n", describe(t.fg).c_str());
+    std::printf("background: %s\n", describe(t.bg).c_str());
+    std::printf("drawing:    %s\n", t.fg && t.bg ? "in the terminal's text colour, on its own background"
+                                                 : "black on a white page (the terminal's colours are unknown)");
+}
 
 int usageError(const std::string& message) {
     std::fprintf(stderr, "stave: %s\n\n%s", message.c_str(), kUsage);
@@ -40,7 +66,7 @@ std::optional<int> parseInt(std::string_view s) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool testPatternRequested = false;
+    bool testPatternRequested = false, infoRequested = false;
     std::optional<std::string> svgPath;
     std::optional<int> width;
     for (int i = 1; i < argc; ++i) {
@@ -54,6 +80,8 @@ int main(int argc, char** argv) {
             return 0;
         } else if (arg == "--test-pattern") {
             testPatternRequested = true;
+        } else if (arg == "--terminal-info") {
+            infoRequested = true;
         } else if (arg == "--svg") {
             if (!hasValue) return usageError("--svg needs a file name");
             svgPath = argv[++i];
@@ -67,16 +95,25 @@ int main(int argc, char** argv) {
             return usageError("unknown option '" + std::string(arg) + "'");
         }
     }
-    if (testPatternRequested && svgPath) return usageError("use either --svg or --test-pattern, not both");
+    if (int(testPatternRequested) + int(svgPath.has_value()) + int(infoRequested) > 1)
+        return usageError("use only one of --svg, --test-pattern and --terminal-info");
     if (width && !svgPath) return usageError("--width only applies to --svg");
-    if (!testPatternRequested && !svgPath) {
+    if (!testPatternRequested && !svgPath && !infoRequested) {
         std::fputs(kUsage, stdout);
+        return 0;
+    }
+
+    ConsoleSetup console;
+    const TerminalInfo term = probeTerminal();
+    if (infoRequested) {
+        printTerminalInfo(term);
         return 0;
     }
 
     std::optional<Canvas> canvas;
     if (svgPath) {
-        SvgRenderResult r = renderSvgFile(*svgPath, width.value_or(kDefaultWidth));
+        const int defaultWidth = term.pixelWidth() > 0 ? std::min(term.pixelWidth(), kMaxImageSide) : kFallbackWidth;
+        SvgRenderResult r = renderSvgFile(*svgPath, width.value_or(defaultWidth));
         if (!r.canvas) {
             std::fprintf(stderr, "stave: %s\n", r.error.c_str());
             return 1;
@@ -86,9 +123,8 @@ int main(int argc, char** argv) {
         canvas = testPattern();
     }
 
-    ConsoleSetup console;
-    const RGB ink{0, 0, 0}, paper{255, 255, 255};  // until we can ask the terminal for its colours
-    if (!writeAll(encodeSixel(*canvas, ink, paper, /*opaque=*/true) + "\n")) {
+    const InkAndPaper colours = chooseColours(term);
+    if (!writeAll(encodeSixel(*canvas, colours.ink, colours.paper, colours.opaque) + "\n")) {
         std::fputs("stave: couldn't write to stdout\n", stderr);
         return 1;
     }
