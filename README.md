@@ -21,31 +21,42 @@ cmake --build build --config Release
 
 ## Run
 
-Needs a terminal that can show sixel graphics, such as Windows Terminal 1.22+, WezTerm, foot or
-iTerm2.
+Draws real pixels in terminals that can show images: kitty graphics (kitty, Ghostty, WezTerm) or
+sixel (Windows Terminal 1.22+, WezTerm, foot, iTerm2, ...). Anywhere else it falls back to braille
+characters, 2x4 dots each.
 
 ```
-stave score.musicxml         # show a score full screen (MusicXML .musicxml/.xml/.mxl, MEI or ABC)
+stave examples/beethoven-op18no1-mvt1.mxl   # a score full screen (MusicXML .musicxml/.xml/.mxl, MEI or ABC)
 stave drawing.svg            # ...or an SVG
+stave FILE --bar 9 --staff 2 # start somewhere else in a score (counting from 1)
 stave FILE --width 400       # start at another width
+stave FILE --paper           # dark ink on a cream page, instead of the terminal's own colours
+stave FILE --sixel           # force an output: --sixel, --kitty or --braille
 stave FILE --print           # print it inline instead, like cat
-stave --test-pattern         # a test image, to check that sixel works in this terminal
+stave FILE --png out.png     # save the first screen as a 1600x900 PNG
+stave FILE --bench           # time loading, drawing and each output
+stave --test-pattern         # a test image, to check that this terminal can show images
 stave --terminal-info        # what stave found out about this terminal
 ```
 
 In a terminal, a file opens in a full-screen viewer; when the output isn't a terminal, it prints
 instead. A score is laid out as one long line of music that scrolls sideways, starting with each
-staff about two and a half text rows tall. stave finds Verovio's music fonts in `verovio-data/`
-next to the executable (the build puts them there); `--verovio-data DIR` points elsewhere.
+staff about two and a half text rows tall, and the opening clefs, key signatures and part names
+stay pinned on the left. stave draws in the terminal's own colours, and finds Verovio's music
+fonts in `verovio-data/` next to the executable (the build puts them there); `--verovio-data DIR`
+points elsewhere. Set `STAVE_DUMP_SVG=file.svg` to save the SVG Verovio drew, for debugging.
 
-| Key | Action |
-|---|---|
-| ← → ↑ ↓ / h l k j | move a tenth of the screen |
-| Shift+← → / H L | one screen sideways |
-| PgUp PgDn / Space | one screen up/down |
-| Home End / g G | start / end |
-| + - | zoom |
-| q / Esc / Ctrl+C | quit |
+| Key | In a score | In an SVG |
+|---|---|---|
+| ← → / h l | one bar | a tenth of the screen |
+| ↑ ↓ / k j | one staff | a tenth of the screen |
+| Shift+← → / H L | one screen sideways | one screen sideways |
+| PgUp PgDn / Space | one screen up/down | one screen up/down |
+| Home End / g G | first / last bar | start / end |
+| + - | zoom | zoom |
+| q / Esc / Ctrl+C | quit | quit |
+
+The example scores in `examples/` are public-domain pieces; see `examples/README.md`.
 
 ## Tests
 
