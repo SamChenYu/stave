@@ -1,10 +1,14 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <initializer_list>
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "encode.hpp"
+#include "pager.hpp"
+#include "score.hpp"
 #include "support/golden.hpp"
 #include "support/sixel_decoder.hpp"
 #include "svgimage.hpp"
@@ -40,6 +44,33 @@ Canvas frameAfter(const std::string& name, int w, int h, std::initializer_list<K
     View v(doc->width(), doc->height(), w, h);
     for (Key k : keys) v.apply(k);
     return doc->render(v.scale(), v.x(), v.y(), w, h);
+}
+
+// A score from tests/data, engraved by Verovio and parsed, as `stave SCORE` does.
+std::unique_ptr<SvgDocument> engraved(const std::string& name) {
+    const EngraveResult r = engraveScore(std::string(STAVE_TEST_DATA_DIR) + "/" + name, defaultVerovioDataDir());
+    REQUIRE_MESSAGE(r.error.empty(), r.error);
+    std::string error;
+    auto doc = SvgDocument::fromData(r.svg, error);
+    REQUIRE_MESSAGE(doc, error);
+    return doc;
+}
+
+// The whole of an engraved score at `scale` pixels per unit (18 units per staff space).
+Canvas wholeScore(const std::string& name, double scale) {
+    const auto doc = engraved(name);
+    return doc->render(scale, 0, 0, int(std::ceil(doc->width() * scale)), int(std::ceil(doc->height() * scale)));
+}
+
+// One pager frame of a score, as runPager sets it up: a terminal of cols x rows characters, each
+// cellW x cellH pixels, starting at the readable score zoom, after pressing `keys`.
+Canvas scoreFrame(const std::string& name, int cols, int rows, int cellW, int cellH, std::initializer_list<Key> keys) {
+    const auto doc = engraved(name);
+    const PagerLayout layout = pagerLayout(cols, rows, cellW, cellH);
+    View v(doc->width(), doc->height(), layout.imageW, layout.imageH,
+           scoreStartZoom(doc->width(), doc->height(), kStaffSpaceUnits, layout, cellH));
+    for (Key k : keys) v.apply(k);
+    return doc->render(v.scale(), v.x(), v.y(), layout.imageW, layout.imageH);
 }
 
 constexpr RGB kBlack{0, 0, 0}, kWhite{255, 255, 255};
@@ -94,5 +125,35 @@ TEST_SUITE("golden pager frames") {
     TEST_CASE("zoomed out: smaller than the screen, against the top-left") {
         const Canvas c = frameAfter("staff-note.svg", 300, 150, {Key::ZoomOut, Key::ZoomOut});
         checkGolden("frame-zoomed-out", throughSixel(c, kBlack, kWhite, true));
+    }
+}
+
+// Scores engraved by Verovio. They have no text (titles, lyrics), whose fonts would come from the
+// system and differ between machines; the music symbols come from Verovio's own fonts.
+TEST_SUITE("golden scores") {
+    TEST_CASE("a one-staff scale, all of it, one long system") {
+        checkGolden("score-scale", throughSixel(wholeScore("scale.musicxml", 0.75), kBlack, kWhite, true));
+    }
+
+    TEST_CASE("a grand staff with a key signature, chords, beams, an accidental, a rest and a tie") {
+        checkGolden("score-piano", throughSixel(wholeScore("piano.musicxml", 0.75), kBlack, kWhite, true));
+    }
+
+    TEST_CASE("the pager's first frame of a score, at the readable starting size") {
+        const Canvas c = scoreFrame("piano.musicxml", 60, 16, 9, 19, {});
+        checkGolden("score-frame-start", throughSixel(c, kBlack, kWhite, true));
+    }
+
+    TEST_CASE("the pager scrolled sideways through a score") {
+        const Canvas c = scoreFrame("piano.musicxml", 60, 16, 9, 19, {Key::PageRight});
+        checkGolden("score-frame-scrolled", throughSixel(c, kBlack, kWhite, true));
+    }
+
+    TEST_CASE("a score in a dark terminal's own colours") {
+        TerminalInfo dark;
+        dark.fg = RGB{204, 204, 204};
+        dark.bg = RGB{12, 12, 12};
+        const InkAndPaper c = chooseColours(dark);
+        checkGolden("score-scale-dark", throughSixel(wholeScore("scale.musicxml", 0.75), c.ink, c.paper, c.opaque));
     }
 }
