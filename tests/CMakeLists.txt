@@ -15,6 +15,7 @@ add_executable(stave_tests
     golden_test.cpp
     keys_test.cpp
     marks_test.cpp
+    notemarks_test.cpp
     pager_test.cpp
     score_test.cpp
     sixel_test.cpp

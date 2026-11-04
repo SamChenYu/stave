@@ -16,7 +16,15 @@ struct Mark {
     // The bars it covers in the score's order, counting from 0 (BarNumbers' indices); found by
     // checkMarks, and -1 until then.
     int firstIndex = -1, lastIndex = -1;
+    // Where it came from, for messages, when that's not an option: "diff.json, mark 3".
+    std::string from;
 };
+
+// How a mark is named in messages: "--added 12-15@2", or "diff.json, mark 3 (added 12-15@2)".
+std::string nameMark(const Mark&);
+
+// "added", "changed" or "removed".
+std::string toneName(Tone);
 
 // The option that marks bars in this tone: "--added", "--changed" or "--removed".
 const char* markOption(Tone);

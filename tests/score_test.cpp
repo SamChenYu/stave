@@ -173,6 +173,12 @@ TEST_SUITE("engraving") {
             // Bar 3: three quarters, over a two-note chord.
             "2 s1 v1 0/1 69", "2 s1 v1 1/1 66", "2 s1 v1 2/1 62", "2 s2 v2 0/1 50", "2 s2 v2 0/1 57"};
         CHECK(got == want);
+        // The notes of a chord say which it is; others are in none.
+        CHECK(!r.notes[0].chord.empty());
+        CHECK(r.notes[0].chord == r.notes[2].chord);
+        CHECK(r.notes[3].chord.empty());
+        CHECK(r.notes[16].chord == r.notes[15].chord);
+        CHECK(r.notes[16].chord != r.notes[0].chord);
     }
 
     TEST_CASE("a note's pitch is what it sounds, for a transposing instrument and under an 8va line") {

@@ -12,6 +12,7 @@ constexpr double kStaffSpaceUnits = 18;
 // A note of an engraved score, for finding notes the way motif describes them.
 struct ScoreNote {
     std::string id;        // its <g class="note"> element's id in the SVG
+    std::string chord;     // the id of the <g class="chord"> it's in, or "" if it isn't in one
     size_t measure = 0;    // which <g class="measure"> it's in, counting from 0 (see ScoreLayout::barMeasures)
     int staff = 1;         // the staff it belongs to, counting from 1, top to bottom
     int voice = 1;         // its voice (Verovio's layer) on that staff

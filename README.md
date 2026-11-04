@@ -35,6 +35,8 @@ stave examples/beethoven-op18no1-mvt1.mxl   # a score full screen (MusicXML .mus
 stave drawing.svg            # ...or an SVG
 stave FILE --bar 9 --staff 2 # start somewhere else in a score (bars by their printed number)
 stave FILE --added 40-60 --changed 12-15@2 --removed 7  # colour bars to show a diff
+stave FILE --marks diff.json # colour single notes too, from a file (see below)
+stave FILE --name "song @ HEAD~1"  # what the status line calls it
 stave FILE --width 400       # start at another width
 stave FILE --paper           # dark ink on a cream page, instead of the terminal's own colours
 stave FILE --sixel           # force an output: --sixel, --kitty or --braille
@@ -57,6 +59,7 @@ stave --terminal-info        # what stave found out about this terminal
 | PgUp PgDn / Space | one screen up/down | one screen up/down |
 | Home End / g G | first / last bar | start / end |
 | + - | zoom | zoom |
+| n N | next / previous change | |
 | q / Esc / Ctrl+C | quit | quit |
 
 The example scores in `examples/` are public-domain pieces; see `examples/README.md`.
@@ -77,6 +80,29 @@ stave new.musicxml --added 40-60 --changed 12-15@2,20@3 --removed 7
 | `3,7-9@1,20` | any mix of those |
 
 bars go by their printed numbers, so a pickup is usually bar 0. staves count from the top, starting at 1.
+
+### single notes
+
+a diff usually changes a few notes rather than whole bars, so `--marks` takes a JSON file that can pick out single notes:
+
+```json
+[
+  {"tone": "changed", "bar": 12, "staff": 2, "at": "3/2", "pitch": 66},
+  {"tone": "added", "bar": 14, "to": 16}
+]
+```
+
+| Field | Means |
+|---|---|
+| `tone` | `added`, `changed` or `removed` |
+| `bar` | the bar's printed number |
+| `to` | the last bar, to mark a run of whole bars |
+| `staff` | only this staff |
+| `at` | only the notes starting here, in quarter notes from the barline: `2`, `1.5` or `"1/3"` |
+| `pitch` | only the notes sounding this MIDI pitch (transposing instruments included) |
+| `voice` | only the notes in this voice |
+
+with `at`, `pitch` or `voice` it marks notes, otherwise whole bars. if every note of a chord is marked the same, its stem and dots get coloured too. a mark that matches no note, or a note marked two different ways, is an error. `n` / `N` jump between changes.
 
 ## Tests
 

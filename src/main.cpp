@@ -19,6 +19,7 @@
 
 #include "encode.hpp"
 #include "marks.hpp"
+#include "notemarks.hpp"
 #include "pager.hpp"
 #include "platform.hpp"
 #include "score.hpp"
@@ -34,7 +35,7 @@ const char* const kUsage =
     "       stave --test-pattern\n"
     "       stave --terminal-info\n"
     "  FILE             a score (MusicXML .musicxml/.xml/.mxl, MEI .mei or ABC .abc) or an SVG (.svg),\n"
-    "                   shown full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, q quits\n"
+    "                   shown full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, n/N change, q quits\n"
     "  --svg FILE       treat FILE as an SVG, whatever its extension\n"
     "  --width N        how wide to draw it at first, in pixels\n"
     "  --bar N, --staff N  for a score: start at this bar (its printed number) and staff (counting\n"
@@ -43,6 +44,9 @@ const char* const kUsage =
     "                   for a score: draw these bars in green, yellow or red, to show a diff. BARS is\n"
     "                   bar numbers and ranges separated by commas, each on every staff or one (staves\n"
     "                   counting from 1): --added 40-60 --changed 12-15@2,20@3 --removed 7\n"
+    "  --marks FILE.json  for a score: more marks, of bars or of single notes, from a file: a list like\n"
+    "                   [{\"tone\": \"changed\", \"bar\": 12, \"staff\": 2, \"at\": \"3/2\", \"pitch\": 66}]\n"
+    "  --name NAME      what the status line calls the file (default: its name), like \"song @ HEAD~1\"\n"
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
     "  --png OUT.png    save the first screen (1600x900, dark ink on a cream page) instead\n"
@@ -114,14 +118,16 @@ double millisecondsSince(Clock::time_point start) {
 }
 
 // Loads FILE: an SVG as it is, or a score engraved by Verovio into SVG. engraveMs is set to how
-// long Verovio took, for --bench, and measureNumbers to a score's printed bar numbers.
+// long Verovio took, for --bench, measureNumbers to a score's printed bar numbers, and with
+// readNotes, notes to its notes.
 std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, const std::string& dataDir,
                                           std::string& error, double& engraveMs,
-                                          std::vector<std::string>& measureNumbers) {
+                                          std::vector<std::string>& measureNumbers, bool readNotes,
+                                          std::vector<ScoreNote>& notes) {
     engraveMs = 0;
     if (isSvg) return SvgDocument::fromFile(path, error);
     const auto start = Clock::now();
-    const EngraveResult score = engraveScore(path, dataDir);
+    const EngraveResult score = engraveScore(path, dataDir, readNotes);
     engraveMs = millisecondsSince(start);
     if (!score.error.empty()) {
         error = score.error;
@@ -141,6 +147,7 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
         return nullptr;
     }
     measureNumbers = score.measureNumbers;
+    notes = score.notes;
     return doc;
 }
 
@@ -188,9 +195,11 @@ int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
     bool paperRequested = false, benchRequested = false;
     std::optional<Output> forcedOutput;
-    std::optional<std::string> file, dataDir, pngPath;
+    std::optional<std::string> file, dataDir, pngPath, shownName;
     std::optional<int> width, startBar, startStaff;
     std::vector<Mark> marks;
+    std::vector<NoteMark> noteMarks;
+    bool marksFileGiven = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         const bool hasValue = i + 1 < argc;
@@ -243,6 +252,24 @@ int run(int argc, char** argv) {
             if (!hasValue) return usageError(std::string(arg) + " needs bars, like 7, 12-15 or 12-15@2");
             std::string error;
             if (!parseMarks(argv[++i], tone, marks, error)) return usageError(error);
+        } else if (arg == "--name") {
+            if (!hasValue) return usageError("--name needs a name to show");
+            shownName = argv[++i];
+        } else if (arg == "--marks") {
+            if (!hasValue) return usageError("--marks needs a file of marks");
+            const std::string path = argv[++i];
+            std::ifstream in(path, std::ios::binary);
+            if (!in) {
+                std::fprintf(stderr, "stave: can't open %s\n", path.c_str());
+                return 1;
+            }
+            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::string error;
+            if (!parseMarksFile(text, path, marks, noteMarks, error)) {
+                std::fprintf(stderr, "stave: %s\n", error.c_str());
+                return 1;
+            }
+            marksFileGiven = true;
         } else if (!arg.empty() && arg[0] == '-') {
             return usageError("unknown option '" + std::string(arg) + "'");
         } else {
@@ -252,10 +279,10 @@ int run(int argc, char** argv) {
     }
     if (int(testPatternRequested) + int(file.has_value()) + int(infoRequested) > 1)
         return usageError("use only one of FILE, --test-pattern and --terminal-info");
-    if ((width || printRequested || dataDir || pngPath || benchRequested) && !file)
-        return usageError("--width, --print, --png, --bench and --verovio-data only apply when showing a file");
-    if ((startBar || startStaff || !marks.empty()) && (!file || forceSvg || isSvgFile(*file)))
-        return usageError("--bar, --staff, --added, --changed and --removed only apply to scores");
+    if ((width || printRequested || dataDir || pngPath || benchRequested || shownName) && !file)
+        return usageError("--width, --name, --print, --png, --bench and --verovio-data only apply when showing a file");
+    if ((startBar || startStaff || !marks.empty() || marksFileGiven) && (!file || forceSvg || isSvgFile(*file)))
+        return usageError("--bar, --staff, --added, --changed, --removed and --marks only apply to scores");
     if (!testPatternRequested && !file && !infoRequested) {
         std::fputs(kUsage, stdout);
         return 0;
@@ -267,11 +294,12 @@ int run(int argc, char** argv) {
     Clock::time_point loadStart;
     double engraveMs = 0;
     std::vector<std::string> measureNumbers;
+    std::vector<ScoreNote> scoreNotes;  // only read when there are notes to mark
     if (file) {
         std::string error;
         loadStart = Clock::now();
         doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error, engraveMs,
-                           measureNumbers);
+                           measureNumbers, !noteMarks.empty(), scoreNotes);
         if (!doc) {
             std::fprintf(stderr, "stave: %s\n", error.c_str());
             return 1;
@@ -304,7 +332,7 @@ int run(int argc, char** argv) {
                 return 1;
             }
         }
-        if (!marks.empty()) {
+        if (!marks.empty() || !noteMarks.empty()) {
             if (!layout) {
                 std::fprintf(stderr, "stave: can't find the bars in %s, so can't mark any\n", file->c_str());
                 return 1;
@@ -314,17 +342,25 @@ int run(int argc, char** argv) {
                 return 1;
             }
             doc->setToneRegions(toneRegions(marks, *layout, doc->width(), doc->height()));
+            std::vector<std::pair<std::string, Tone>> elements;
+            if (const std::string error = findNoteMarks(noteMarks, scoreNotes, *layout, *numbers, marks, elements);
+                !error.empty()) {
+                std::fprintf(stderr, "stave: %s\n", error.c_str());
+                return 1;
+            }
+            doc->setToneElements(elements);
         }
     }
 
     // What the pager needs to know about the file. The terminal-dependent parts come later.
     PagerOptions opt;
     if (doc) {
-        opt.name = std::filesystem::path(*file).filename().string();
+        opt.name = shownName.value_or(std::filesystem::path(*file).filename().string());
         opt.startWidth = width.value_or(0);
         if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
         if (layout) {
             opt.stops = scoreStops(*layout, doc->height());
+            opt.stops.changes = changeStarts(marks, noteMarks, *numbers);
             opt.startBar = startIndex + 1;
             opt.barLabels = numbers->labels();
             opt.startStaff = startStaff.value_or(1);

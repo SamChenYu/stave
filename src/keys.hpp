@@ -16,6 +16,8 @@ enum class Key {
     End,
     ZoomIn,
     ZoomOut,
+    NextChange,
+    PreviousChange,
     Quit,
 };
 
@@ -28,6 +30,7 @@ enum class Key {
 //   PgUp, PgDn, Space          PageUp PageDown (Space is PageDown)
 //   Home End, g G              Home End
 //   + = and - _                ZoomIn ZoomOut
+//   n N                        NextChange PreviousChange
 //   q Q, Ctrl+C                Quit
 Key takeKey(std::string& pending);
 

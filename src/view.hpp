@@ -17,13 +17,17 @@ class View {
 public:
     // Where keys stop in a score, in image units. With stops, arrows move a bar or a staff at a
     // time instead of a tenth of the screen, page keys move by whole bars and staves (the bar or
-    // staff cut off at the edge comes first), and Home and End go to the first and last bar.
+    // staff cut off at the edge comes first), and Home and End go to the first and last bar. With
+    // changes, n and N go to the next and previous one, and to its staff if that's off screen.
     struct Stops {
         std::vector<double> bars;    // where each bar starts, left to right
         double barsEnd = 0;          // where the last bar ends
         std::vector<double> staves;  // where each staff's band starts, top to bottom
         double stavesEnd = 0;        // where the last staff's band ends
         double margin = 0;           // kept to the left of a bar moved to, so its barline shows
+        // Where a diff's changes start, left to right, for n and N: a bar (counting from 0), and the
+        // staff the change is on (counting from 1), or 0 for every staff.
+        std::vector<std::pair<int, int>> changes;
     };
 
     static constexpr double kMinZoom = 0.25, kMaxZoom = 8, kZoomStep = 1.25;
@@ -40,6 +44,7 @@ public:
 
     void setStops(Stops);
     bool hasStops() const { return !stops_.bars.empty(); }
+    bool hasChanges() const { return hasStops() && !stops_.changes.empty(); }
     int barCount() const { return int(stops_.bars.size()); }
     int staffCount() const { return int(stops_.staves.size()); }
     // The first and last bar (or staff) at least partly on screen, counting from 1; {0, 0} without stops.

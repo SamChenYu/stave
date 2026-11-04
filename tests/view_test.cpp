@@ -186,6 +186,36 @@ TEST_SUITE("view stops") {
         CHECK(v.y() == 150);
     }
 
+    TEST_CASE("n and N go to the next and previous change, and to its staff if that's off screen") {
+        View v = scoreView();
+        CHECK(!v.hasChanges());
+        CHECK(!v.apply(Key::NextChange));  // no changes: nothing happens
+        View::Stops s;
+        s.bars = {50, 250, 450, 650, 850};
+        s.barsEnd = 950;
+        s.staves = {0, 150};
+        s.stavesEnd = 300;
+        s.margin = 10;
+        s.changes = {{1, 2}, {2, 0}, {4, 1}};
+        v.setStops(s);
+        CHECK(v.hasChanges());
+        CHECK(v.apply(Key::NextChange));
+        CHECK(v.x() == 240);  // bar 2...
+        CHECK(v.y() == 150);  // ...on staff 2, which was off screen
+        v.apply(Key::NextChange);
+        CHECK(v.x() == 440);
+        CHECK(v.y() == 150);  // every staff: stays where it is
+        v.apply(Key::NextChange);
+        CHECK(v.x() == 600);  // bar 5 is at 840, past the end: as far as it goes
+        CHECK(v.y() == 0);    // staff 1
+        CHECK(!v.apply(Key::NextChange));  // no more
+        v.apply(Key::PreviousChange);
+        CHECK(v.x() == 440);
+        v.apply(Key::PreviousChange);
+        CHECK(v.x() == 240);
+        CHECK(!v.apply(Key::PreviousChange));  // none before bar 2, and staff 2 is on screen
+    }
+
     TEST_CASE("without stops, keys move by fractions of the screen as before") {
         View v(1000, 300, 400, 150, 2.5);
         CHECK(!v.hasStops());

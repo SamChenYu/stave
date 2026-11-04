@@ -104,7 +104,8 @@ std::string statusLine(const std::string& name, const View& v, int width, const 
     if (v.hasStops()) {
         where = range("bar", "bars", v.barsOnScreen(), v.barCount(), barLabels);
         if (v.staffCount() > 0) where += "  " + range("staff", "staves", v.stavesOnScreen(), v.staffCount());
-        keys = "arrows/hjkl bar/staff  Shift+arrows/PgUp/PgDn page  Home/End  +/- zoom  q quit";
+        keys = std::string("arrows/hjkl bar/staff  ") + (v.hasChanges() ? "n/N change  " : "") +
+               "Shift+arrows/PgUp/PgDn page  Home/End  +/- zoom  q quit";
     } else {
         const std::string across = position(v.x(), v.maxX(), "left", "right", " across");
         const std::string down = position(v.y(), v.maxY(), "top", "bottom", " down");

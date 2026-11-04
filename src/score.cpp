@@ -56,6 +56,7 @@ public:
             const vrv::Fraction onset = note->GetScoreTimeOnset();
             ScoreNote n;
             n.id = note->GetID();
+            if (const vrv::Object* chord = o->GetFirstAncestor(vrv::CHORD, 1)) n.chord = chord->GetID();
             n.measure = measureIndex.at(measure);
             n.staff = staff->GetN();
             n.voice = layer && layer->GetN() > 0 ? layer->GetN() : 1;

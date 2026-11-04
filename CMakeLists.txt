@@ -37,6 +37,7 @@ add_library(stave_core STATIC
     src/encode.cpp
     src/keys.cpp
     src/marks.cpp
+    src/notemarks.cpp
     src/pager.cpp
     src/platform.cpp
     src/score.cpp

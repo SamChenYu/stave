@@ -19,6 +19,12 @@ using K = std::vector<Key>;
 }  // namespace
 
 TEST_SUITE("keys") {
+    TEST_CASE("n and N for the next and previous change") {
+        std::string in = "nN";
+        CHECK(takeKey(in) == Key::NextChange);
+        CHECK(takeKey(in) == Key::PreviousChange);
+    }
+
     TEST_CASE("letters and Ctrl+C") {
         CHECK(keysIn("hjklHL gG+-=_qQ\x03") == K{Key::Left, Key::Down, Key::Up, Key::Right, Key::PageLeft,
                                                   Key::PageRight, Key::PageDown, Key::Home, Key::End, Key::ZoomIn,

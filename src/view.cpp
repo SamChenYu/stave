@@ -104,6 +104,26 @@ bool View::apply(Key k) {
             case Key::PageDown: y_ = staves.pageForward(y_, screenH_); break;
             case Key::ZoomIn: setZoom(zoom_ * kZoomStep); break;
             case Key::ZoomOut: setZoom(zoom_ / kZoomStep); break;
+            case Key::NextChange:
+            case Key::PreviousChange: {
+                const bool forward = k == Key::NextChange;
+                const std::pair<int, int>* to = nullptr;
+                for (const std::pair<int, int>& c : stops_.changes) {
+                    if (c.first < 0 || c.first >= bars.count()) continue;
+                    const double t = std::min(bars.target(c.first), maxX());  // as far as it can go
+                    if (forward ? t > x_ + 0.5 : t < x_ - 0.5) {
+                        to = &c;
+                        if (forward) break;  // the first one past here; going back, the last one before
+                    }
+                }
+                if (!to) break;
+                x_ = bars.target(to->first);
+                const std::pair<int, int> shown = staves.onScreen(y_, screenH_);
+                if (to->second > 0 && to->second <= staves.count() &&
+                    (to->second < shown.first || to->second > shown.second))
+                    y_ = staves.target(to->second - 1);
+                break;
+            }
             default: break;
         }
         clamp();

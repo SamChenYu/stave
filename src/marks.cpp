@@ -84,12 +84,16 @@ bool parseMarks(std::string_view value, Tone tone, std::vector<Mark>& marks, std
     return true;
 }
 
+std::string toneName(Tone t) { return markOption(t) + 2; }
+
+std::string nameMark(const Mark& m) {
+    if (!m.from.empty()) return m.from + " (" + toneName(m.tone) + " " + describeMark(m) + ")";
+    return std::string(markOption(m.tone)) + " " + describeMark(m);
+}
+
 namespace {
 
-std::string named(const Mark& m) { return std::string(markOption(m.tone)) + " " + describeMark(m); }
-
-// "added", "changed" or "removed".
-std::string toneName(Tone t) { return markOption(t) + 2; }
+std::string named(const Mark& m) { return nameMark(m); }
 
 }  // namespace
 

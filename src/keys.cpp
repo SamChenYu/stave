@@ -17,6 +17,8 @@ Key plainKey(char ch) {
         case ' ': return Key::PageDown;
         case 'g': return Key::Home;
         case 'G': return Key::End;
+        case 'n': return Key::NextChange;
+        case 'N': return Key::PreviousChange;
         case '+':
         case '=': return Key::ZoomIn;
         case '-':
