@@ -134,3 +134,14 @@ TEST_SUITE("score zoom") {
         CHECK(scale == doctest::Approx(2.5 * 19 / 4 / 18));
     }
 }
+
+TEST_SUITE("pager summary") {
+    TEST_CASE("a summary takes a row above the status line from the image") {
+        CHECK(pagerLayout(120, 30, 9, 19, Output::Sixel, 2).imageRows == 28);
+        CHECK(pagerLayout(120, 30, 9, 19, Output::Sixel, 1).imageRows == 29);
+        PagerOptions opt;
+        CHECK(textRowsFor(opt) == 1);
+        opt.summary = "4 notes changed";
+        CHECK(textRowsFor(opt) == 2);
+    }
+}

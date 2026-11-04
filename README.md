@@ -37,6 +37,7 @@ stave FILE --bar 9 --staff 2 # start somewhere else in a score (bars by their pr
 stave FILE --added 40-60 --changed 12-15@2 --removed 7  # colour bars to show a diff
 stave FILE --marks diff.json # colour single notes too, from a file (see below)
 stave FILE --name "song @ HEAD~1"  # what the status line calls it
+stave FILE --summary "4 notes changed"  # a line of text above the status line
 stave FILE --width 400       # start at another width
 stave FILE --paper           # dark ink on a cream page, instead of the terminal's own colours
 stave FILE --sixel           # force an output: --sixel, --kitty or --braille

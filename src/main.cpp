@@ -49,6 +49,7 @@ const char* const kUsage =
     "  --marks FILE.json  for a score: more marks, of bars or of single notes, from a file: a list like\n"
     "                   [{\"tone\": \"changed\", \"bar\": 12, \"staff\": 2, \"at\": \"3/2\", \"pitch\": 66}]\n"
     "  --name NAME      what the status line calls the file (default: its name), like \"song @ HEAD~1\"\n"
+    "  --summary TEXT   a line of text shown above the status line, such as what a diff changed\n"
     "  --compare OLD NEW  two versions of a score side by side, the old on the left, scrolling together;\n"
     "                   --marks, --added and the like mark the new one, --bar and --staff are its own\n"
     "  --before-marks FILE.json  with --compare: marks for the old version, like --marks\n"
@@ -284,6 +285,7 @@ struct CompareRequest {
     std::optional<Output> forcedOutput;
     bool paper = false;
     std::optional<std::string> pngPath;
+    std::string summary;  // shown above the status line
 };
 
 // The pager's options for one version of a comparison.
@@ -336,6 +338,7 @@ int runCompare(CompareRequest& r) {
         opt.after.startBar = found->first + 1;
     }
     opt.after.startStaff = r.startStaff.value_or(1);
+    opt.after.summary = r.summary;
 
     if (r.pngPath) {
         // The first screen on a 1600x900 display with 10x20-pixel characters, as --png draws a score.
@@ -380,6 +383,7 @@ int run(int argc, char** argv) {
     bool marksFileGiven = false;
     // --compare: the old version, and what to show on it
     std::optional<std::string> beforeFile, beforeName;
+    std::optional<std::string> summary;  // --summary: a line shown above the status line
     std::vector<Mark> beforeMarks;
     std::vector<NoteMark> beforeNoteMarks;
     bool beforeMarksGiven = false, pairsGiven = false;
@@ -462,6 +466,9 @@ int run(int argc, char** argv) {
         } else if (arg == "--before-name") {
             if (!hasValue) return usageError("--before-name needs a name to show");
             beforeName = argv[++i];
+        } else if (arg == "--summary") {
+            if (!hasValue) return usageError("--summary needs a line of text to show");
+            summary = argv[++i];
         } else if (!arg.empty() && arg[0] == '-') {
             return usageError("unknown option '" + std::string(arg) + "'");
         } else {
@@ -482,7 +489,7 @@ int run(int argc, char** argv) {
                                shownName.value_or(std::filesystem::path(*file).filename().string()),
                                std::move(beforeMarks), std::move(beforeNoteMarks), std::move(marks),
                                std::move(noteMarks), std::move(pairs), startBar, startStaff,
-                               forcedOutput, paperRequested, pngPath};
+                               forcedOutput, paperRequested, pngPath, summary.value_or("")};
         return runCompare(request);
     }
     if (int(testPatternRequested) + int(file.has_value()) + int(infoRequested) > 1)
@@ -557,6 +564,7 @@ int run(int argc, char** argv) {
     PagerOptions opt;
     if (doc) {
         opt.name = shownName.value_or(std::filesystem::path(*file).filename().string());
+        opt.summary = summary.value_or("");
         opt.startWidth = width.value_or(0);
         if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
         if (layout) {

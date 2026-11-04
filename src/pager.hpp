@@ -18,7 +18,8 @@ struct PagerLayout {
     int imageRows;       // text rows the image covers
     int imageW, imageH;  // image size in pixels; for sixel and kitty, a whole number of sixel bands
 };
-PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output = Output::Sixel);
+// `textRows` is how many rows at the bottom are text: the status line, and a summary above it if any.
+PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output = Output::Sixel, int textRows = 1);
 
 // The status line, cut or padded to exactly `width` characters: the name, where the view is, the
 // zoom (100% being the size it opened at), and the keys. Where the view is, for a score: which bars
@@ -57,7 +58,11 @@ struct PagerOptions {
     View::Stops stops;            // for a score: where its bars and staves are
     int startBar = 1, startStaff = 1;  // for a score: where to start, counting from 1
     std::vector<std::string> barLabels;  // for a score: each bar's printed number, for the status line
+    std::string summary;  // a line of text above the status line, such as a diff's counts ("" for none)
 };
+
+// How many rows at the bottom of the screen are text, with these options.
+inline int textRowsFor(const PagerOptions& opt) { return opt.summary.empty() ? 1 : 2; }
 
 // The view the pager opens with, for an image area of layout's size: the starting zoom (from
 // startWidth, or a readable staff size for a score, or fitting the width), and for a score its
@@ -84,7 +89,8 @@ struct CompareLayout {
     SplitWidths split;    // its two halves and the gap between them
     int leftCols;         // the left half's width in characters, for the status line
 };
-CompareLayout compareLayout(int cols, int rows, int cellW, int cellH, Output output = Output::Sixel);
+CompareLayout compareLayout(int cols, int rows, int cellW, int cellH, Output output = Output::Sixel,
+                            int textRows = 1);
 
 struct CompareViews {
     View before, after;

@@ -52,6 +52,12 @@ void drawCanvas(const Canvas& c, int imageRows, int rows, const PagerOptions& op
     }
     // Reverse video, so the status line follows the terminal's own colours. It stops one column
     // short of the edge: writing the last cell of the last row can scroll the screen.
+    // A summary goes on the row above, as wide as the status line.
+    if (!opt.summary.empty() && rows > 1) {
+        std::string line = " " + opt.summary;
+        if (line.size() > status.size()) line.resize(status.size());
+        f += moveTo(rows - 1, 1) + "\x1b[2K" + line;
+    }
     f += moveTo(rows, 1) + "\x1b[2K\x1b[7m" + status + "\x1b[0m";
     f += "\x1b[?2026l";
     writeAll(f);
@@ -65,11 +71,11 @@ void drawFrame(const SvgDocument& doc, const View& v, const PagerLayout& layout,
 
 }  // namespace
 
-PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output) {
+PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output, int textRows) {
     const bool known = cellW > 0 && cellH > 0;
     const int cw = known ? cellW : kGuessCellW, ch = known ? cellH : kGuessCellH;
     PagerLayout l{};
-    l.imageRows = std::max(1, rows - 1);
+    l.imageRows = std::max(1, rows - std::max(1, textRows));
     if (output == Output::Braille) {
         l.imageW = std::clamp(std::max(1, cols) * 2, 1, kMaxImageSide);
         l.imageH = std::clamp(l.imageRows * 4, 4, kMaxImageSide);
@@ -170,7 +176,7 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
 
     WindowSize size = queryWindowSize();
     int cols = size.cols > 0 ? size.cols : 80, rows = size.rows > 0 ? size.rows : 24;
-    PagerLayout layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output);
+    PagerLayout layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output, textRowsFor(opt));
     View view = startView(doc, opt, layout, term.cellH);
 
     FullScreen fullScreen(opt.output);
@@ -198,7 +204,7 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
         if (size.cols > 0 && size.rows > 0 && (size.cols != cols || size.rows != rows)) {
             cols = size.cols;
             rows = size.rows;
-            layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output);
+            layout = pagerLayout(cols, rows, term.cellW, term.cellH, opt.output, textRowsFor(opt));
             view.resize(layout.imageW, layout.imageH);
             dirty = clear = true;
         }
@@ -208,9 +214,9 @@ bool runPager(const SvgDocument& doc, const TerminalInfo& term, const PagerOptio
 
 // ---- Two versions side by side
 
-CompareLayout compareLayout(int cols, int rows, int cellW, int cellH, Output output) {
+CompareLayout compareLayout(int cols, int rows, int cellW, int cellH, Output output, int textRows) {
     CompareLayout l{};
-    l.screen = pagerLayout(cols, rows, cellW, cellH, output);
+    l.screen = pagerLayout(cols, rows, cellW, cellH, output, textRows);
     const int cell = output == Output::Braille ? 2 : (cellW > 0 && cellH > 0 ? cellW : kGuessCellW);
     l.split = splitWidths(l.screen.imageW, cell);
     l.leftCols = l.split.left / cell;
@@ -280,7 +286,7 @@ bool runComparePager(const SvgDocument& before, const SvgDocument& after, const 
 
     WindowSize size = queryWindowSize();
     int cols = size.cols > 0 ? size.cols : 80, rows = size.rows > 0 ? size.rows : 24;
-    CompareLayout layout = compareLayout(cols, rows, term.cellW, term.cellH, opt.after.output);
+    CompareLayout layout = compareLayout(cols, rows, term.cellW, term.cellH, opt.after.output, textRowsFor(opt.after));
     CompareViews views = startCompareViews(before, after, opt, layout, term.cellH);
 
     FullScreen fullScreen(opt.after.output);
@@ -308,7 +314,7 @@ bool runComparePager(const SvgDocument& before, const SvgDocument& after, const 
         if (size.cols > 0 && size.rows > 0 && (size.cols != cols || size.rows != rows)) {
             cols = size.cols;
             rows = size.rows;
-            layout = compareLayout(cols, rows, term.cellW, term.cellH, opt.after.output);
+            layout = compareLayout(cols, rows, term.cellW, term.cellH, opt.after.output, textRowsFor(opt.after));
             views.after.resize(layout.split.right, layout.screen.imageH);
             views.before.resize(layout.split.left, layout.screen.imageH);
             followView(views.before, views.after, opt.bars);
