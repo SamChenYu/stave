@@ -204,3 +204,14 @@ TEST_SUITE("note marks") {
                   .size() == 2);
     }
 }
+
+TEST_CASE("a whole-bar mark can fill the bars' background instead of colouring their ink") {
+    const auto [bars, notes] = read(R"([{"tone": "removed", "bar": 3, "to": 5, "fill": true}, {"tone": "added", "bar": 6}])");
+    REQUIRE(bars.size() == 2);
+    CHECK(bars[0].fill);
+    CHECK(bars[0].lastBar == 5);
+    CHECK_FALSE(bars[1].fill);
+    CHECK(refused(R"([{"tone": "added", "bar": 3, "pitch": 60, "fill": true}])") ==
+          "diff.json, mark 1: \"fill\" is for whole bars, but this marks notes");
+    CHECK(refused(R"([{"tone": "added", "bar": 3, "fill": "yes"}])") == "diff.json, mark 1: \"fill\" is true or false");
+}

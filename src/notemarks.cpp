@@ -92,10 +92,14 @@ bool parseMarksFile(std::string_view json, const std::string& name, std::vector<
         if (!list.values()[i]->is<jsonxx::Object>())
             return fail("isn't an object, like {\"tone\": \"added\", \"bar\": 12}");
         const jsonxx::Object& o = list.get<jsonxx::Object>(unsigned(i));
-        static const std::set<std::string> kKnown{"tone", "bar", "to", "staff", "at", "pitch", "voice"};
+        static const std::set<std::string> kKnown{"tone", "bar", "to", "staff", "at", "pitch", "voice", "fill"};
         for (const auto& field : o.kv_map())
             if (!kKnown.count(field.first))
-                return fail("unknown field \"" + field.first + "\" (marks have tone, bar, to, staff, at, pitch and voice)");
+                return fail("unknown field \"" + field.first +
+                            "\" (marks have tone, bar, to, staff, at, pitch, voice and fill)");
+        if (o.has<jsonxx::Value>("fill") && !o.has<jsonxx::Boolean>("fill"))
+            return fail("\"fill\" is true or false");
+        const bool fill = o.has<jsonxx::Boolean>("fill") && o.get<jsonxx::Boolean>("fill");
         // A field that must be a whole number from `least`, if it's there.
         auto whole = [&](const char* key, long long least, long long most, std::optional<int>& out) {
             if (!o.has<jsonxx::Value>(key)) return true;
@@ -138,6 +142,7 @@ bool parseMarksFile(std::string_view json, const std::string& name, std::vector<
 
         if (m.at || m.pitch || m.voice) {
             if (to) return fail("\"to\" is for whole bars, but this marks notes, which are in one bar");
+            if (fill) return fail("\"fill\" is for whole bars, but this marks notes");
             foundNotes.push_back(std::move(m));
         } else {
             if (to && *to < *bar) return fail("\"to\" is before \"bar\"");
@@ -146,6 +151,7 @@ bool parseMarksFile(std::string_view json, const std::string& name, std::vector<
             b.firstBar = *bar;
             b.lastBar = to.value_or(*bar);
             b.staff = m.staff;
+            b.fill = fill;
             b.from = from;
             foundBars.push_back(std::move(b));
         }

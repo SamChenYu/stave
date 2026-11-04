@@ -48,6 +48,7 @@ struct PagerOptions {
     Output output = Output::Sixel;
     Inks inks = oneInk({0, 0, 0});  // plain ink, then the inks for marked bars
     ToneColours brailleColours = terminalToneColours();  // braille's colour for each tone
+    ToneColours brailleFills{};   // braille's background for each fill (fillColours); empty: none
     RGB paper{255, 255, 255};     // sixel paints paper, so each frame fully covers the one before
     bool transparent = false;     // kitty: leave paper unpainted, showing the terminal's background
     int startWidth = 0;           // how wide to draw the image at first, in pixels (0: see below)

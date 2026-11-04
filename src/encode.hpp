@@ -7,6 +7,11 @@
 
 // Each encoder draws a pixel in the ink of its tone (see Canvas::tone), from `inks`. The versions
 // taking one RGB ink draw every tone in it.
+//
+// A pixel with a fill (Canvas::fill) has its paper tinted: kFillCoverage/255 of the way from paper
+// to that tone's ink, faint enough for ink in the same tone to stand out on it.
+constexpr int kFillCoverage = 56;
+RGB fillPaper(const Inks& inks, RGB paper, Tone fill);
 
 // Turns a coverage canvas into a sixel image, ready to write to the terminal.
 // Each pixel is drawn as a blend of paper and ink, weighted by its coverage.
@@ -35,6 +40,13 @@ constexpr int kBrailleThreshold = 40;
 using ToneColours = std::array<std::string, kToneCount>;  // the escape code that starts each tone's colour
 std::vector<std::string> encodeBraille(const Canvas&, const ToneColours& colours);
 std::vector<std::string> encodeBraille(const Canvas&);  // in terminalToneColours()
+// The same, with a background behind each character whose pixels are mostly filled: the escape code
+// that starts each fill's background, from `fills` (fillColours). Empty codes leave it alone.
+std::vector<std::string> encodeBraille(const Canvas&, const ToneColours& colours, const ToneColours& fills);
+
+// Backgrounds for braille's filled characters: fillPaper's colours as 24-bit codes, with the
+// terminal's own background (reset) for plain.
+ToneColours fillColours(const Inks& inks, RGB paper);
 
 // The terminal's own text colour, green (added), yellow (changed) and red (removed), whatever its
 // theme makes them.

@@ -12,10 +12,14 @@ struct Canvas {
     int w = 0, h = 0;
     std::vector<uint8_t> px;    // row by row, w * h bytes
     std::vector<uint8_t> tone;  // each pixel's Tone, row by row like px; empty when all are plain
+    // Each pixel's background: a Tone whose colour tints the paper behind it, like a diff's line
+    // highlight; Plain for bare paper. Row by row like px; empty when there's no tint anywhere.
+    std::vector<uint8_t> fill;
 
     Canvas(int width, int height) : w(width), h(height), px(size_t(width) * size_t(height), 0) {}
 
     uint8_t& at(int x, int y) { return px[size_t(y) * w + x]; }
     uint8_t at(int x, int y) const { return px[size_t(y) * w + x]; }
     Tone toneAt(int x, int y) const { return tone.empty() ? Tone::Plain : Tone(tone[size_t(y) * w + x]); }
+    Tone fillAt(int x, int y) const { return fill.empty() ? Tone::Plain : Tone(fill[size_t(y) * w + x]); }
 };

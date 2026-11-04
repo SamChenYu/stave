@@ -13,6 +13,7 @@ struct Mark {
     Tone tone = Tone::Added;
     int firstBar = 1, lastBar = 1;
     int staff = 0;  // 0: every staff
+    bool fill = false;  // tint the bars' background in the tone, rather than colour their ink
     // The bars it covers in the score's order, counting from 0 (BarNumbers' indices); found by
     // checkMarks, and -1 until then.
     int firstIndex = -1, lastIndex = -1;

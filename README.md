@@ -101,6 +101,7 @@ a diff usually changes a few notes rather than whole bars, so `--marks` takes a 
 | `at` | only the notes starting here, in quarter notes from the barline: `2`, `1.5` or `"1/3"` |
 | `pitch` | only the notes sounding this MIDI pitch (transposing instruments included) |
 | `voice` | only the notes in this voice |
+| `fill` | `true`: tint the bars' background in the tone, rather than colour their ink, like a diff's line highlight. notes marked in the same bars still show their colour on it |
 
 with `at`, `pitch` or `voice` it marks notes, otherwise whole bars. if every note of a chord is marked the same, its stem and dots get coloured too. a mark that matches no note, or a note marked two different ways, is an error. `n` / `N` jump between changes.
 

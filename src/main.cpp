@@ -216,12 +216,21 @@ std::string readMarksFile(const std::string& path, std::vector<Mark>& bars, std:
 std::string applyMarks(SvgDocument& doc, const ScoreLayout& layout, const BarNumbers& numbers,
                        std::vector<Mark>& bars, const std::vector<NoteMark>& notes,
                        const std::vector<ScoreNote>& scoreNotes) {
-    if (std::string error = checkMarks(bars, numbers, int(layout.staves.size())); !error.empty()) return error;
-    doc.setToneRegions(toneRegions(bars, layout, doc.width(), doc.height()));
+    // Marks that tint bars' backgrounds are checked apart from those that colour their ink: a bar
+    // can have both, as a diff's changed line is tinted and its changed words coloured.
+    std::vector<Mark> ink, fill;
+    for (const Mark& m : bars) (m.fill ? fill : ink).push_back(m);
+    for (std::vector<Mark>* group : {&ink, &fill})
+        if (std::string error = checkMarks(*group, numbers, int(layout.staves.size())); !error.empty()) return error;
+    doc.setToneRegions(toneRegions(ink, layout, doc.width(), doc.height()));
+    doc.setFillRegions(toneRegions(fill, layout, doc.width(), doc.height()));
     std::vector<std::pair<std::string, Tone>> elements;
-    if (std::string error = findNoteMarks(notes, scoreNotes, layout, numbers, bars, elements); !error.empty())
+    if (std::string error = findNoteMarks(notes, scoreNotes, layout, numbers, ink, elements); !error.empty())
         return error;
     doc.setToneElements(elements);
+    // Back with the bars they cover found, for n and N.
+    bars = ink;
+    bars.insert(bars.end(), fill.begin(), fill.end());
     return "";
 }
 
@@ -350,6 +359,7 @@ int runCompare(CompareRequest& r) {
     opt.after.output = r.forcedOutput.value_or(chooseOutput(term));
     opt.after.inks = colours.inks();
     opt.after.brailleColours = toneColours(colours.inks(), colours.exact);
+    opt.after.brailleFills = fillColours(colours.inks(), colours.paper);
     opt.after.paper = colours.paper;
     opt.after.transparent = !colours.opaque;
     if (!isInteractive() || !runComparePager(*before->doc, *after->doc, term, opt)) {
@@ -587,6 +597,7 @@ int run(int argc, char** argv) {
         opt.output = output;
         opt.inks = colours.inks();
         opt.brailleColours = toneColours(colours.inks(), colours.exact);
+        opt.brailleFills = fillColours(colours.inks(), colours.paper);
         opt.paper = colours.paper;
         opt.transparent = !colours.opaque;
         if (runPager(*doc, term, opt)) return 0;

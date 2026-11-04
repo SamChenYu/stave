@@ -45,7 +45,7 @@ void drawCanvas(const Canvas& c, int imageRows, int rows, const PagerOptions& op
                  encodeKitty(c, opt.inks, opt.paper, /*opaque=*/!opt.transparent, /*moveCursor=*/false);
             break;
         case Output::Braille: {
-            const std::vector<std::string> lines = encodeBraille(c, opt.brailleColours);
+            const std::vector<std::string> lines = encodeBraille(c, opt.brailleColours, opt.brailleFills);
             for (size_t r = 0; r < lines.size() && int(r) < imageRows; ++r) f += moveTo(int(r) + 1, 1) + lines[r];
             break;
         }

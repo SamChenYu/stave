@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <random>
 #include <set>
 #include <string>
@@ -169,5 +170,38 @@ TEST_SUITE("sixel decoder") {
         CHECK(decodeSixel("\x1bPq\"1;1;1;1#0;2;0;0;0#0~\x1b\\").error != "");  // six rows into a 1-row image
         CHECK(decodeSixel("\x1bPq#0;2;0;0;0#0@\x1b\\").error != "");          // no size
         CHECK(decodeSixel("\x1bPq\"1;1;1;1#0;2;0;0;0#0@ \x1b\\").error != "");  // stray byte
+    }
+}
+
+TEST_SUITE("fills") {
+    TEST_CASE("a filled pixel's paper is tinted towards its tone's ink, and painted even when transparent") {
+        const Inks inks{kBlack, RGB{0, 204, 51}, RGB{204, 153, 0}, RGB{204, 0, 0}};
+        Canvas c = filled(2, 6, 0);  // bare paper everywhere
+        c.fill.assign(c.px.size(), uint8_t(Tone::Plain));
+        c.fill[1] = uint8_t(Tone::Removed);  // the top-right pixel
+        const RGB tint = fillPaper(inks, kWhite, Tone::Removed);
+        CHECK(tint.r > tint.g);  // reddish...
+        CHECK(tint.g == tint.b);
+        CHECK(tint.g > 180);     // ...but faint
+        CHECK(tint.g < 255);
+
+        const SixelDecodeResult r = decodeSixel(encodeSixel(c, inks, kWhite, /*opaque=*/false));
+        REQUIRE(r.error == "");
+        CHECK(r.image.at(0, 0).a == 0);  // bare paper stays transparent...
+        const Pixel p = r.image.at(1, 0);
+        CHECK(p.a == 255);  // ...but the filled pixel is painted
+        CHECK(std::abs(int(p.g) - int(tint.g)) <= 3);  // sixel colours are percentages
+    }
+
+    TEST_CASE("braille gives a mostly filled character its fill's background") {
+        Canvas c = filled(4, 4, 0);
+        c.fill.assign(c.px.size(), uint8_t(Tone::Plain));
+        for (int y = 0; y < 4; ++y)
+            for (int x = 2; x < 4; ++x) c.fill[size_t(y) * 4 + x] = uint8_t(Tone::Added);
+        const ToneColours fills{"<bg0>", "<bg1>", "<bg2>", "<bg3>"};
+        const std::vector<std::string> rows = encodeBraille(c, terminalToneColours(), fills);
+        REQUIRE(rows.size() == 1);
+        // A blank character, then one on the added background, then back to the terminal's own.
+        CHECK(rows[0] == "\xe2\xa0\x80<bg1>\xe2\xa0\x80<bg0>");
     }
 }

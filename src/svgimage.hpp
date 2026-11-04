@@ -67,6 +67,10 @@ public:
     // signatures, whichever bars are on screen.
     void setToneRegions(std::vector<ToneRegion> regions) { toneRegions_ = std::move(regions); }
 
+    // Sets where the paper behind the ink is tinted in a tone (Canvas::fill), like a diff's line
+    // highlight; later regions win where they overlap. The pinned column stays bare.
+    void setFillRegions(std::vector<ToneRegion> regions) { fillRegions_ = std::move(regions); }
+
     // Elements, by id, whose ink render() draws in a tone: single notes, rather than whole bars. A
     // pixel takes an element's tone where the element is at least half its ink, so a notehead takes
     // the bit of staff line under it, but not the rest of the line. These win over the regions, and
@@ -88,6 +92,7 @@ private:
     double pinWidth_ = 0;              // document units; 0: no pinned column
     std::vector<size_t> pinPieces_;    // indices into pieces_
     std::vector<ToneRegion> toneRegions_;
+    std::vector<ToneRegion> fillRegions_;
     std::vector<ToneElement> toneElements_;
 
     // Draws the pieces near the window (all of them, or those in `only`) into bmp, whose top-left
