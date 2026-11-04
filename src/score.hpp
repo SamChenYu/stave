@@ -29,6 +29,9 @@ struct EngraveResult {
     std::vector<std::string> measureNumbers;
     // With readNotes: every note, in Verovio's document order (bar by bar, then staff, voice and time).
     std::vector<ScoreNote> notes;
+    // Each <g class="measure">'s label, from MEI's measure@label ("" if none), in the SVG's order: what
+    // to call the bar on screen when its number is only there to find it by.
+    std::vector<std::string> measureLabels;
 };
 
 // Lays out a score with Verovio as one long system, with no line or page breaks, so it scrolls
@@ -43,6 +46,9 @@ std::string defaultVerovioDataDir();
 // The data-n attribute of each <g class="measure"> in Verovio's SVG (drawn with svgAdditionalAttribute
 // measure@n), in order; "" where a measure has none.
 std::vector<std::string> measureNumbers(std::string_view svg);
+
+// The data-label attribute of each <g class="measure"> (measure@label), in order; "" where a measure has none.
+std::vector<std::string> measureLabels(std::string_view svg);
 
 class SvgDocument;
 
@@ -99,6 +105,10 @@ private:
     std::vector<std::optional<int>> numbers_;  // each label as a whole number, if it is one
     bool counted_ = true;
 };
+
+// What the status line calls each bar: its measure's label (EngraveResult::measureLabels) where it has
+// one, otherwise its number. A score can number its bars one way, to find them by, and show another.
+std::vector<std::string> barLabels(const ScoreLayout&, const BarNumbers&, const std::vector<std::string>& measureLabels);
 
 // Gets an engraved score ready for the pager: draws only the bars near the screen, so long scores
 // scroll smoothly, and keeps the opening clefs and key signatures (up to layout.pinRight) at the

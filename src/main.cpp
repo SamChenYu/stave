@@ -126,11 +126,12 @@ double millisecondsSince(Clock::time_point start) {
 }
 
 // Loads FILE: an SVG as it is, or a score engraved by Verovio into SVG. engraveMs is set to how
-// long Verovio took, for --bench, measureNumbers to a score's printed bar numbers, and with
-// readNotes, notes to its notes.
+// long Verovio took, for --bench, measureNumbers to a score's printed bar numbers, measureLabels to
+// their labels, and with readNotes, notes to its notes.
 std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, const std::string& dataDir,
                                           std::string& error, double& engraveMs,
-                                          std::vector<std::string>& measureNumbers, bool readNotes,
+                                          std::vector<std::string>& measureNumbers,
+                                          std::vector<std::string>& measureLabels, bool readNotes,
                                           std::vector<ScoreNote>& notes) {
     engraveMs = 0;
     if (isSvg) return SvgDocument::fromFile(path, error);
@@ -155,6 +156,7 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
         return nullptr;
     }
     measureNumbers = score.measureNumbers;
+    measureLabels = score.measureLabels;
     notes = score.notes;
     return doc;
 }
@@ -228,6 +230,7 @@ struct MarkedScore {
     std::unique_ptr<SvgDocument> doc;
     ScoreLayout layout;
     BarNumbers numbers{{}, 0};
+    std::vector<std::string> labels;           // what the status line calls each bar
     std::vector<std::pair<int, int>> changes;  // where its marks start, for n and N
 };
 
@@ -236,11 +239,11 @@ std::optional<MarkedScore> loadMarkedScore(const std::string& path, const std::s
                                            std::vector<Mark>& bars, const std::vector<NoteMark>& notes,
                                            std::string& error) {
     double engraveMs = 0;
-    std::vector<std::string> measureNumbers;
+    std::vector<std::string> measureNumbers, measureLabels;
     std::vector<ScoreNote> scoreNotes;
     MarkedScore s;
-    s.doc = loadDocument(path, /*isSvg=*/false, dataDir, error, engraveMs, measureNumbers, !notes.empty(),
-                         scoreNotes);
+    s.doc = loadDocument(path, /*isSvg=*/false, dataDir, error, engraveMs, measureNumbers, measureLabels,
+                         !notes.empty(), scoreNotes);
     if (!s.doc) return std::nullopt;
     const std::optional<ScoreLayout> layout = findScoreLayout(*s.doc);
     if (!layout) {
@@ -250,6 +253,7 @@ std::optional<MarkedScore> loadMarkedScore(const std::string& path, const std::s
     s.layout = *layout;
     prepareForPaging(*s.doc, s.layout);
     s.numbers = BarNumbers::of(s.layout, measureNumbers);
+    s.labels = barLabels(s.layout, s.numbers, measureLabels);
     if (std::string e = applyMarks(*s.doc, s.layout, s.numbers, bars, notes, scoreNotes); !e.empty()) {
         error = e;
         return std::nullopt;
@@ -279,7 +283,7 @@ PagerOptions compareSide(const MarkedScore& s, const std::string& name) {
     opt.name = name;
     opt.staffSpaceUnits = s.layout.staffSpace;
     opt.stops = scoreStops(s.layout, s.doc->height());
-    opt.barLabels = s.numbers.labels();
+    opt.barLabels = s.labels;
     return opt;
 }
 
@@ -487,13 +491,13 @@ int run(int argc, char** argv) {
     const bool isSvg = file && (forceSvg || isSvgFile(*file));
     Clock::time_point loadStart;
     double engraveMs = 0;
-    std::vector<std::string> measureNumbers;
+    std::vector<std::string> measureNumbers, measureLabels;
     std::vector<ScoreNote> scoreNotes;  // only read when there are notes to mark
     if (file) {
         std::string error;
         loadStart = Clock::now();
         doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error, engraveMs,
-                           measureNumbers, !noteMarks.empty(), scoreNotes);
+                           measureNumbers, measureLabels, !noteMarks.empty(), scoreNotes);
         if (!doc) {
             std::fprintf(stderr, "stave: %s\n", error.c_str());
             return 1;
@@ -549,7 +553,7 @@ int run(int argc, char** argv) {
             opt.stops = scoreStops(*layout, doc->height());
             opt.stops.changes = changeStarts(marks, noteMarks, *numbers);
             opt.startBar = startIndex + 1;
-            opt.barLabels = numbers->labels();
+            opt.barLabels = barLabels(*layout, *numbers, measureLabels);
             opt.startStaff = startStaff.value_or(1);
         }
     }

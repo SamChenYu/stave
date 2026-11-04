@@ -289,3 +289,11 @@ TEST_SUITE("engraving") {
         CHECK(contains(r.error, "--verovio-data"));
     }
 }
+
+TEST_CASE("a bar's label is shown in place of its number where it has one") {
+    ScoreLayout layout;
+    layout.barMeasures = {0, 1, 2};
+    const BarNumbers numbers({"1", "2", "3"}, 3);
+    CHECK(barLabels(layout, numbers, {"", "18", ""}) == std::vector<std::string>{"1", "18", "3"});
+    CHECK(barLabels(layout, numbers, {}) == std::vector<std::string>{"1", "2", "3"});
+}

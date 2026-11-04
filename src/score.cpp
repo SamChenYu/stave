@@ -112,7 +112,7 @@ EngraveResult engraveScore(const std::string& path, const std::string& dataDir, 
         "adjustPageWidth": true,
         "adjustPageHeight": true,
         "smuflTextFont": "none",
-        "svgAdditionalAttribute": ["measure@n"],
+        "svgAdditionalAttribute": ["measure@n", "measure@label"],
         "pageMarginTop": 50, "pageMarginBottom": 50, "pageMarginLeft": 50, "pageMarginRight": 50
     })");
 
@@ -124,22 +124,44 @@ EngraveResult engraveScore(const std::string& path, const std::string& dataDir, 
     std::string svg = tk.RenderToSVG(1);
     if (svg.empty()) return failure(path + ": Verovio couldn't draw it");
     std::vector<std::string> numbers = measureNumbers(svg);
-    return {std::move(svg), "", std::move(numbers), readNotes ? tk.notes() : std::vector<ScoreNote>()};
+    std::vector<std::string> labels = measureLabels(svg);
+    return {std::move(svg), "", std::move(numbers), readNotes ? tk.notes() : std::vector<ScoreNote>(),
+            std::move(labels)};
 }
 
-std::vector<std::string> measureNumbers(std::string_view svg) {
-    std::vector<std::string> numbers;
-    constexpr std::string_view kClass = "class=\"measure\"", kNumber = "data-n=\"";
+namespace {
+
+// The value of `attribute` on each <g class="measure"> in Verovio's SVG, in order; "" where absent.
+std::vector<std::string> measureAttribute(std::string_view svg, std::string_view attribute) {
+    std::vector<std::string> values;
+    constexpr std::string_view kClass = "class=\"measure\"";
+    const std::string key = std::string(attribute) + "=\"";
     for (size_t at = svg.find(kClass); at != std::string_view::npos; at = svg.find(kClass, at + 1)) {
         const size_t open = svg.rfind('<', at), close = svg.find('>', at);
         if (open == std::string_view::npos || close == std::string_view::npos) break;
         const std::string_view tag = svg.substr(open, close - open);
-        const size_t n = tag.find(kNumber);
-        const size_t start = n == std::string_view::npos ? 0 : n + kNumber.size();
+        const size_t n = tag.find(key);
+        const size_t start = n == std::string_view::npos ? 0 : n + key.size();
         const size_t end = n == std::string_view::npos ? 0 : tag.find('"', start);
-        numbers.emplace_back(end == std::string_view::npos ? std::string_view() : tag.substr(start, end - start));
+        values.emplace_back(end == std::string_view::npos ? std::string_view() : tag.substr(start, end - start));
     }
-    return numbers;
+    return values;
+}
+
+}  // namespace
+
+std::vector<std::string> measureNumbers(std::string_view svg) { return measureAttribute(svg, "data-n"); }
+
+std::vector<std::string> measureLabels(std::string_view svg) { return measureAttribute(svg, "data-label"); }
+
+std::vector<std::string> barLabels(const ScoreLayout& layout, const BarNumbers& numbers,
+                                   const std::vector<std::string>& measureLabels) {
+    std::vector<std::string> labels = numbers.labels();
+    for (size_t i = 0; i < labels.size() && i < layout.barMeasures.size(); ++i) {
+        const size_t m = layout.barMeasures[i];
+        if (m < measureLabels.size() && !measureLabels[m].empty()) labels[i] = measureLabels[m];
+    }
+    return labels;
 }
 
 namespace {
