@@ -108,6 +108,18 @@ Canvas SvgDocument::render(double scale, double x, double y, int w, int h) const
         drawPieces(music, scale, rx + pin, ry, nullptr);
         copyCoverage(music, c, pin);
     }
+    // Canvas column cx shows the document's pixel column rx + cx, everywhere right of the pin.
+    for (const ToneRegion& r : toneRegions_) {
+        const int x0 = std::clamp(int(std::lround(r.x0 * scale - rx)), pin, w);
+        const int x1 = std::clamp(int(std::lround(r.x1 * scale - rx)), pin, w);
+        const int y0 = std::clamp(int(std::lround(r.y0 * scale - ry)), 0, h);
+        const int y1 = std::clamp(int(std::lround(r.y1 * scale - ry)), 0, h);
+        if (x0 >= x1 || y0 >= y1) continue;
+        if (c.tone.empty()) c.tone.assign(c.px.size(), uint8_t(Tone::Plain));
+        for (int row = y0; row < y1; ++row)
+            std::fill(c.tone.begin() + (ptrdiff_t(row) * w + x0), c.tone.begin() + (ptrdiff_t(row) * w + x1),
+                      uint8_t(r.tone));
+    }
     return c;
 }
 

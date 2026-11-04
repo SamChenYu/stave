@@ -2,6 +2,7 @@
 #include <string>
 
 #include "color.hpp"
+#include "encode.hpp"
 #include "score.hpp"
 #include "svgimage.hpp"
 #include "termprobe.hpp"
@@ -42,7 +43,9 @@ View::Stops scoreStops(const ScoreLayout&, double docHeight);
 struct PagerOptions {
     std::string name;             // shown in the status line
     Output output = Output::Sixel;
-    RGB ink, paper;               // sixel paints paper, so each frame fully covers the one before
+    Inks inks = oneInk({0, 0, 0});  // plain ink, then the inks for marked bars
+    ToneColours brailleColours = terminalToneColours();  // braille's colour for each tone
+    RGB paper{255, 255, 255};     // sixel paints paper, so each frame fully covers the one before
     bool transparent = false;     // kitty: leave paper unpainted, showing the terminal's background
     int startWidth = 0;           // how wide to draw the image at first, in pixels (0: see below)
     double staffSpaceUnits = 0;   // for a score: units per staff space, to start at a readable size;

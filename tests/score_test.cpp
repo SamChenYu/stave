@@ -112,6 +112,28 @@ TEST_SUITE("engraving") {
         CHECK(layout->staves[1].bandBottom == doc->height());
     }
 
+    TEST_CASE("each bar's inside stops short of the barlines on either side, but not by much") {
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        std::string error;
+        const auto doc = SvgDocument::fromData(r.svg, error);
+        REQUIRE(doc);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        REQUIRE(layout->barInsides.size() == 3);
+        const double space = layout->staffSpace;
+        for (size_t i = 0; i < 3; ++i) {
+            CAPTURE(i);
+            const ScoreLayout::Span& in = layout->barInsides[i];
+            const double stop = i + 1 < 3 ? layout->barStarts[i + 1] : layout->end;
+            CHECK(in.left >= layout->barStarts[i]);
+            CHECK(in.right < stop);  // each bar here ends with a barline
+            CHECK(in.right > stop - 2 * space);  // the final barline is the widest, at under 2 spaces
+            if (i > 0) CHECK(in.left > layout->barStarts[i]);
+            if (i > 0) CHECK(in.left < layout->barStarts[i] + space);
+        }
+    }
+
     TEST_CASE("finds the four bars of the one-staff scale") {
         const EngraveResult r = engraveScore(testData("scale.musicxml"), defaultVerovioDataDir());
         REQUIRE_MESSAGE(r.error == "", r.error);

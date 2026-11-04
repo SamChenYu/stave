@@ -50,8 +50,9 @@ void appendInt(std::string& out, int v) {
 
 // Sixel sends the image in bands 6 pixels tall. Each band is painted once per colour: one
 // character per column, whose 6 bits say which of that column's 6 pixels get the colour.
-std::string encodeSixel(const Canvas& c, RGB ink, RGB paper, bool opaque) {
+std::string encodeSixel(const Canvas& c, const Inks& inks, RGB paper, bool opaque) {
     constexpr int kLevels = 8;  // shades from paper to ink; enough for smooth edges
+    constexpr int kMaxColours = 1 + kToneCount * (kLevels - 1);
     std::string out;
     out.reserve(size_t(c.w) * 8 + 4096);
     out += "\x1bP9;1q";  // start sixel: square pixels, unpainted pixels stay transparent
@@ -60,40 +61,55 @@ std::string encodeSixel(const Canvas& c, RGB ink, RGB paper, bool opaque) {
     out += ';';
     appendInt(out, c.h);
 
-    // The palette: colour k is k/(kLevels-1) of the way from paper to ink.
-    for (int k = 0; k < kLevels; ++k) {
-        const RGB col = shade(ink, paper, k * 255 / (kLevels - 1));
+    // The palette: colour 0 is bare paper. Then each tone in the picture gets kLevels - 1 colours,
+    // shade k being k/(kLevels-1) of the way from paper to that tone's ink. colourOf[t][k] is the
+    // colour for shade k of tone t. Without marks, that's colours 0 to 7, from paper to ink.
+    bool toneUsed[kToneCount] = {true};
+    for (uint8_t t : c.tone) toneUsed[t < kToneCount ? t : 0] = true;
+    int colourOf[kToneCount][kLevels] = {};
+    int colours = 1;
+    for (int t = 0; t < kToneCount; ++t) {
+        if (!toneUsed[t]) continue;
+        for (int k = 1; k < kLevels; ++k) colourOf[t][k] = colours++;
+    }
+    auto define = [&](int colour, RGB col) {
         out += '#';
-        appendInt(out, k);
+        appendInt(out, colour);
         out += ";2";
         for (uint8_t v : {col.r, col.g, col.b}) {
             out += ';';
             appendInt(out, (v * 100 + 127) / 255);  // sixel colours are percentages
         }
-    }
+    };
+    define(0, paper);
+    for (int t = 0; t < kToneCount; ++t)
+        if (toneUsed[t])
+            for (int k = 1; k < kLevels; ++k) define(colourOf[t][k], shade(inks[t], paper, k * 255 / (kLevels - 1)));
 
     uint8_t levelOf[256];
     for (int v = 0; v < 256; ++v) levelOf[v] = uint8_t((v * (kLevels - 1) + 127) / 255);
 
-    // One pass over each band sorts every pixel into its shade: bits[k][x] holds which of the
-    // band's 6 rows have shade k in column x. used[k] is one past the last such column.
-    std::vector<uint8_t> bits(size_t(kLevels) * c.w);
+    // One pass over each band sorts every pixel into its colour: bits[k][x] holds which of the
+    // band's 6 rows have colour k in column x. used[k] is one past the last such column.
+    std::vector<uint8_t> bits(size_t(colours) * c.w);
     for (int y0 = 0; y0 < c.h; y0 += 6) {
         std::fill(bits.begin(), bits.end(), uint8_t(0));
-        int used[kLevels] = {};
+        int used[kMaxColours] = {};
         const int rows = std::min(6, c.h - y0);
         for (int r = 0; r < rows; ++r) {
             const uint8_t* src = &c.px[size_t(y0 + r) * c.w];
+            const uint8_t* tones = c.tone.empty() ? nullptr : &c.tone[size_t(y0 + r) * c.w];
             const uint8_t bit = uint8_t(1 << r);
             for (int x = 0; x < c.w; ++x) {
-                const int k = levelOf[src[x]];
+                const int t = tones && tones[x] < kToneCount ? tones[x] : 0;
+                const int k = colourOf[t][levelOf[src[x]]];
                 bits[size_t(k) * c.w + x] |= bit;
                 if (x >= used[k]) used[k] = x + 1;
             }
         }
 
         bool first = true;
-        for (int k = opaque ? 0 : 1; k < kLevels; ++k) {  // level 0 is bare paper: skip it to stay transparent
+        for (int k = opaque ? 0 : 1; k < colours; ++k) {  // colour 0 is bare paper: skip it to stay transparent
             const int end = used[k];                      // trailing empty columns aren't sent
             if (end == 0) continue;
             if (!first) out += '$';  // back to the start of this band for the next colour
@@ -122,10 +138,11 @@ std::string encodeSixel(const Canvas& c, RGB ink, RGB paper, bool opaque) {
     return out;
 }
 
-std::string encodeKitty(const Canvas& c, RGB ink, RGB paper, bool opaque, bool moveCursor) {
+std::string encodeKitty(const Canvas& c, const Inks& inks, RGB paper, bool opaque, bool moveCursor) {
     const int bytesPerPixel = opaque ? 3 : 4;
     std::string pixels(c.px.size() * size_t(bytesPerPixel), '\0');
     for (size_t i = 0; i < c.px.size(); ++i) {
+        const RGB ink = inks[c.tone.empty() || c.tone[i] >= kToneCount ? 0 : c.tone[i]];
         const RGB p = opaque ? shade(ink, paper, c.px[i]) : ink;
         char* d = &pixels[i * size_t(bytesPerPixel)];
         d[0] = char(p.r);
@@ -156,37 +173,69 @@ std::string encodeKitty(const Canvas& c, RGB ink, RGB paper, bool opaque, bool m
     return out;
 }
 
-std::vector<std::string> encodeBraille(const Canvas& c) {
+ToneColours terminalToneColours() { return {"\x1b[39m", "\x1b[32m", "\x1b[33m", "\x1b[31m"}; }
+
+ToneColours toneColours(const Inks& inks, const std::array<bool, kToneCount>& exact) {
+    ToneColours codes = terminalToneColours();
+    for (int t = 1; t < kToneCount; ++t)  // plain ink is the terminal's own text colour
+        if (exact[size_t(t)]) {
+            const RGB c = inks[size_t(t)];
+            codes[size_t(t)] =
+                "\x1b[38;2;" + std::to_string(c.r) + ";" + std::to_string(c.g) + ";" + std::to_string(c.b) + "m";
+        }
+    return codes;
+}
+
+std::vector<std::string> encodeBraille(const Canvas& c) { return encodeBraille(c, terminalToneColours()); }
+
+std::vector<std::string> encodeBraille(const Canvas& c, const ToneColours& colours) {
     // Which bit of a braille character raises the dot at (column dx, row dy) of its 2x4 cell.
     static const uint8_t kBit[4][2] = {{0x01, 0x08}, {0x02, 0x10}, {0x04, 0x20}, {0x40, 0x80}};
     std::vector<std::string> rows;
     for (int y0 = 0; y0 < c.h; y0 += 4) {
         std::string row;
         row.reserve(size_t(c.w + 1) / 2 * 3);
+        Tone current = Tone::Plain;  // the colour the row is in so far
         for (int x0 = 0; x0 < c.w; x0 += 2) {
             int dots = 0;
+            int toneDots[kToneCount] = {};
             for (int dy = 0; dy < 4; ++dy)
                 for (int dx = 0; dx < 2; ++dx) {
                     const int x = x0 + dx, y = y0 + dy;
-                    if (x < c.w && y < c.h && c.at(x, y) >= kBrailleThreshold) dots |= kBit[dy][dx];
+                    if (x < c.w && y < c.h && c.at(x, y) >= kBrailleThreshold) {
+                        dots |= kBit[dy][dx];
+                        const int t = int(c.toneAt(x, y));
+                        ++toneDots[t < kToneCount ? t : 0];
+                    }
                 }
+            // A character has one colour: the tone of most of its dots. A blank one keeps the
+            // colour going, which saves switching back and forth.
+            if (dots) {
+                Tone t = Tone::Plain;
+                for (int i = 1; i < kToneCount; ++i)
+                    if (toneDots[i] > toneDots[int(t)]) t = Tone(i);
+                if (t != current) row += colours[int(t)];
+                current = t;
+            }
             const int cp = 0x2800 + dots;  // braille patterns start at U+2800; UTF-8 needs 3 bytes
             row += char(0xE0 | (cp >> 12));
             row += char(0x80 | ((cp >> 6) & 0x3F));
             row += char(0x80 | (cp & 0x3F));
         }
+        if (current != Tone::Plain) row += colours[int(Tone::Plain)];
         rows.push_back(std::move(row));
     }
     return rows;
 }
 
-bool writePng(const Canvas& c, RGB ink, RGB paper, const std::string& path) {
+bool writePng(const Canvas& c, const Inks& inks, RGB paper, const std::string& path) {
     lunasvg::Bitmap bmp(c.w, c.h);  // 32-bit ARGB in native byte order; opaque, so not premultiplied
     if (bmp.isNull()) return false;
     uint8_t* data = bmp.data();
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
-            const RGB p = shade(ink, paper, c.at(x, y));
+            const int t = int(c.toneAt(x, y));
+            const RGB p = shade(inks[t < kToneCount ? t : 0], paper, c.at(x, y));
             const uint32_t argb = 0xFF000000u | uint32_t(p.r) << 16 | uint32_t(p.g) << 8 | p.b;
             std::memcpy(data + size_t(y) * bmp.stride() + size_t(x) * 4, &argb, 4);
         }

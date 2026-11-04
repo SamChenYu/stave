@@ -39,13 +39,13 @@ void drawFrame(const SvgDocument& doc, const View& v, const PagerLayout& layout,
     std::string f = "\x1b[?2026h";  // synchronized update: the terminal shows the whole frame at once
     if (clear) f += "\x1b[2J";
     switch (opt.output) {
-        case Output::Sixel: f += moveTo(1, 1) + encodeSixel(c, opt.ink, opt.paper, /*opaque=*/true); break;
+        case Output::Sixel: f += moveTo(1, 1) + encodeSixel(c, opt.inks, opt.paper, /*opaque=*/true); break;
         case Output::Kitty:
             f += kDeleteKittyImages + moveTo(1, 1) +
-                 encodeKitty(c, opt.ink, opt.paper, /*opaque=*/!opt.transparent, /*moveCursor=*/false);
+                 encodeKitty(c, opt.inks, opt.paper, /*opaque=*/!opt.transparent, /*moveCursor=*/false);
             break;
         case Output::Braille: {
-            const std::vector<std::string> lines = encodeBraille(c);
+            const std::vector<std::string> lines = encodeBraille(c, opt.brailleColours);
             for (size_t r = 0; r < lines.size() && int(r) < layout.imageRows; ++r)
                 f += moveTo(int(r) + 1, 1) + lines[r];
             break;

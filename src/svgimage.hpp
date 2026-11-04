@@ -3,9 +3,11 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "canvas.hpp"
+#include "color.hpp"
 
 namespace lunasvg {
 class Bitmap;
@@ -55,6 +57,16 @@ public:
     // the picture is exactly the document. Scrolling still runs to the same end.
     void pinColumn(double width, std::vector<size_t> pieces);
 
+    // A rectangle, in document units, whose ink render() draws in a tone, to show a diff.
+    struct ToneRegion {
+        double x0, y0, x1, y1;
+        Tone tone;
+    };
+    // Sets where ink is drawn in a tone other than plain; later regions win where they overlap.
+    // The pinned column (see pinColumn) stays plain: it repeats the opening clefs and key
+    // signatures, whichever bars are on screen.
+    void setToneRegions(std::vector<ToneRegion> regions) { toneRegions_ = std::move(regions); }
+
     // The parsed document itself, for reading its structure (as score.cpp does).
     const lunasvg::Document& lunasvgDocument() const { return *doc_; }
 
@@ -67,6 +79,7 @@ private:
     std::vector<Piece> pieces_;
     double pinWidth_ = 0;              // document units; 0: no pinned column
     std::vector<size_t> pinPieces_;    // indices into pieces_
+    std::vector<ToneRegion> toneRegions_;
 
     // Draws the pieces near the window (all of them, or those in `only`) into bmp, whose top-left
     // corner is at (x, y) in pixels of the document drawn at `scale`.

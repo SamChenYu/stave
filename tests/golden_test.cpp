@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "encode.hpp"
+#include "marks.hpp"
 #include "pager.hpp"
 #include "score.hpp"
 #include "support/golden.hpp"
@@ -24,10 +25,13 @@
 namespace {
 
 // What a terminal shows for this canvas: encode it to sixel, then decode those bytes.
-Image throughSixel(const Canvas& c, RGB ink, RGB paper, bool opaque) {
-    SixelDecodeResult r = decodeSixel(encodeSixel(c, ink, paper, opaque));
+Image throughSixelInks(const Canvas& c, const Inks& inks, RGB paper, bool opaque) {
+    SixelDecodeResult r = decodeSixel(encodeSixel(c, inks, paper, opaque));
     REQUIRE_MESSAGE(r.error.empty(), r.error);
     return std::move(r.image);
+}
+Image throughSixel(const Canvas& c, RGB ink, RGB paper, bool opaque) {
+    return throughSixelInks(c, oneInk(ink), paper, opaque);
 }
 
 // Renders an SVG from tests/data, as `stave --svg` does.
@@ -60,9 +64,16 @@ std::unique_ptr<SvgDocument> engraved(const std::string& name) {
     return doc;
 }
 
-// The whole of an engraved score at `scale` pixels per unit (18 units per staff space).
-Canvas wholeScore(const std::string& name, double scale) {
+// The whole of an engraved score at `scale` pixels per unit (18 units per staff space), with
+// `marks` (as --added, --changed and --removed give them).
+Canvas wholeScore(const std::string& name, double scale, const std::vector<Mark>& marks = {}) {
     const auto doc = engraved(name);
+    if (!marks.empty()) {
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        REQUIRE(checkMarks(marks, int(layout->barStarts.size()), int(layout->staves.size())) == "");
+        doc->setToneRegions(toneRegions(marks, *layout, doc->width(), doc->height()));
+    }
     return doc->render(scale, 0, 0, int(std::ceil(doc->width() * scale)), int(std::ceil(doc->height() * scale)));
 }
 
@@ -175,5 +186,11 @@ TEST_SUITE("golden scores") {
     TEST_CASE("a score with --paper: dark ink on a cream page") {
         const Canvas c = wholeScore("piano.musicxml", 0.75);
         checkGolden("score-piano-paper", throughSixel(c, kPaperColours.ink, kPaperColours.paper, kPaperColours.opaque));
+    }
+
+    TEST_CASE("a diff on paper: bar 1 added on the upper staff, bar 2 changed on both, bar 3 removed below") {
+        const std::vector<Mark> marks = {{Tone::Added, 1, 1, 1}, {Tone::Changed, 2, 2, 0}, {Tone::Removed, 3, 3, 2}};
+        const Canvas c = wholeScore("piano.musicxml", 0.75, marks);
+        checkGolden("score-piano-marked", throughSixelInks(c, kPaperColours.inks(), kPaperColours.paper, kPaperColours.opaque));
     }
 }

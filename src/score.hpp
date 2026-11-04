@@ -30,6 +30,12 @@ struct ScoreLayout {
     };
     std::vector<double> barStarts;  // where each bar's staff lines begin, left to right
     double end = 0;                 // where the last bar's staff lines end
+    // Each bar between its barlines (which neighbouring bars share): from just right of the barline
+    // it starts at, if any, to just left of the one it ends with. One for each of barStarts.
+    struct Span {
+        double left, right;
+    };
+    std::vector<Span> barInsides;
     std::vector<Staff> staves;      // top to bottom
     double staffSpace = kStaffSpaceUnits;
     // Where the column that stays put while the bars scroll ends: just after the opening clefs and

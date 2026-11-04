@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "encode.hpp"
+#include "marks.hpp"
 #include "pager.hpp"
 #include "platform.hpp"
 #include "score.hpp"
@@ -37,6 +38,10 @@ const char* const kUsage =
     "  --svg FILE       treat FILE as an SVG, whatever its extension\n"
     "  --width N        how wide to draw it at first, in pixels\n"
     "  --bar N, --staff N  for a score: start at this bar and staff (counting from 1)\n"
+    "  --added BARS, --changed BARS, --removed BARS\n"
+    "                   for a score: draw these bars in green, yellow or red, to show a diff. BARS is\n"
+    "                   bars and ranges separated by commas, each on every staff or one (counting\n"
+    "                   from 1): --added 40-60 --changed 12-15@2,20@3 --removed 7\n"
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
     "  --png OUT.png    save the first screen (1600x900, dark ink on a cream page) instead\n"
@@ -69,8 +74,15 @@ void printTerminalInfo(const TerminalInfo& t) {
         std::printf("cell:       unknown, so images default to %d pixels wide\n", kFallbackWidth);
     std::printf("text:       %s\n", describe(t.fg).c_str());
     std::printf("background: %s\n", describe(t.bg).c_str());
+    std::printf("theme:      red %s, green %s, yellow %s\n", describe(t.red).c_str(), describe(t.green).c_str(),
+                describe(t.yellow).c_str());
     std::printf("drawing:    %s\n", t.fg && t.bg ? "in the terminal's text colour, on its own background"
                                                  : "black on a white page (the terminal's colours are unknown)");
+    std::vector<std::string> notes;
+    const InkAndPaper c = chooseColours(t, &notes);
+    std::printf("marks:      added %s, changed %s, removed %s\n", describe(c.added).c_str(),
+                describe(c.changed).c_str(), describe(c.removed).c_str());
+    for (const std::string& note : notes) std::printf("            %s\n", note.c_str());
     std::printf("graphics:   sixel %s, kitty %s%s\n", t.sixel ? "yes" : "no", t.kitty ? "yes" : "no",
                 t.answered ? "" : " (the terminal didn't answer)");
     std::printf("output:     %s\n", outputName(chooseOutput(t)));
@@ -158,7 +170,8 @@ int bench(const SvgDocument& doc, const PagerOptions& opt, const std::optional<S
         for (const Canvas& c : frames) bytes += encode(c);
         return millisecondsSince(start) / kRuns;
     };
-    const RGB ink = kPaperColours.ink, paper = kPaperColours.paper;
+    const Inks ink = kPaperColours.inks();
+    const RGB paper = kPaperColours.paper;
     std::printf("screen    %dx%d, average of %d:\n", screen.imageW, screen.imageH, kRuns);
     std::printf("  draw    %8.2f ms\n", renderMs / kRuns);
     std::printf("  sixel   %8.2f ms\n", time([&](const Canvas& c) { return encodeSixel(c, ink, paper, true).size(); }));
@@ -174,6 +187,7 @@ int run(int argc, char** argv) {
     std::optional<Output> forcedOutput;
     std::optional<std::string> file, dataDir, pngPath;
     std::optional<int> width, startBar, startStaff;
+    std::vector<Mark> marks;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         const bool hasValue = i + 1 < argc;
@@ -219,6 +233,11 @@ int run(int argc, char** argv) {
             target = parseInt(argv[++i]);
             if (!target || *target < 1)
                 return usageError(std::string(arg) + " needs a whole number from 1, not '" + argv[i] + "'");
+        } else if (arg == "--added" || arg == "--changed" || arg == "--removed") {
+            const Tone tone = arg == "--added" ? Tone::Added : arg == "--changed" ? Tone::Changed : Tone::Removed;
+            if (!hasValue) return usageError(std::string(arg) + " needs bars, like 7, 12-15 or 12-15@2");
+            std::string error;
+            if (!parseMarks(argv[++i], tone, marks, error)) return usageError(error);
         } else if (!arg.empty() && arg[0] == '-') {
             return usageError("unknown option '" + std::string(arg) + "'");
         } else {
@@ -230,8 +249,8 @@ int run(int argc, char** argv) {
         return usageError("use only one of FILE, --test-pattern and --terminal-info");
     if ((width || printRequested || dataDir || pngPath || benchRequested) && !file)
         return usageError("--width, --print, --png, --bench and --verovio-data only apply when showing a file");
-    if ((startBar || startStaff) && (!file || forceSvg || isSvgFile(*file)))
-        return usageError("--bar and --staff only apply to scores");
+    if ((startBar || startStaff || !marks.empty()) && (!file || forceSvg || isSvgFile(*file)))
+        return usageError("--bar, --staff, --added, --changed and --removed only apply to scores");
     if (!testPatternRequested && !file && !infoRequested) {
         std::fputs(kUsage, stdout);
         return 0;
@@ -264,6 +283,17 @@ int run(int argc, char** argv) {
                          staves, staves == 1 ? "" : "s");
             return 1;
         }
+        if (!marks.empty()) {
+            if (!layout) {
+                std::fprintf(stderr, "stave: can't find the bars in %s, so can't mark any\n", file->c_str());
+                return 1;
+            }
+            if (const std::string error = checkMarks(marks, bars, staves); !error.empty()) {
+                std::fprintf(stderr, "stave: %s\n", error.c_str());
+                return 1;
+            }
+            doc->setToneRegions(toneRegions(marks, *layout, doc->width(), doc->height()));
+        }
     }
 
     // What the pager needs to know about the file. The terminal-dependent parts come later.
@@ -287,7 +317,7 @@ int run(int argc, char** argv) {
         const PagerLayout screen{45, 1600, 900};
         const View v = startView(*doc, opt, screen, 20);
         const Canvas c = doc->render(v.scale(), v.x(), v.y(), screen.imageW, screen.imageH);
-        if (!writePng(c, kPaperColours.ink, kPaperColours.paper, *pngPath)) {
+        if (!writePng(c, kPaperColours.inks(), kPaperColours.paper, *pngPath)) {
             std::fprintf(stderr, "stave: couldn't write %s\n", pngPath->c_str());
             return 1;
         }
@@ -306,7 +336,8 @@ int run(int argc, char** argv) {
 
     if (doc && !printRequested && isInteractive()) {
         opt.output = output;
-        opt.ink = colours.ink;
+        opt.inks = colours.inks();
+        opt.brailleColours = toneColours(colours.inks(), colours.exact);
         opt.paper = colours.paper;
         opt.transparent = !colours.opaque;
         if (runPager(*doc, term, opt)) return 0;
@@ -330,12 +361,13 @@ int run(int argc, char** argv) {
 
     std::string image;
     switch (output) {
-        case Output::Sixel: image = encodeSixel(*canvas, colours.ink, colours.paper, colours.opaque); break;
+        case Output::Sixel: image = encodeSixel(*canvas, colours.inks(), colours.paper, colours.opaque); break;
         case Output::Kitty:
-            image = encodeKitty(*canvas, colours.ink, colours.paper, colours.opaque, /*moveCursor=*/true);
+            image = encodeKitty(*canvas, colours.inks(), colours.paper, colours.opaque, /*moveCursor=*/true);
             break;
         case Output::Braille:
-            for (const std::string& line : encodeBraille(*canvas)) image += line + "\n";
+            for (const std::string& line : encodeBraille(*canvas, toneColours(colours.inks(), colours.exact)))
+                image += line + "\n";
             if (!image.empty()) image.pop_back();
             break;
     }

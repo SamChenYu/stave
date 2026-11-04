@@ -115,6 +115,27 @@ void forEachGlyph(const lunasvg::Element& e, F&& fn) {
     }
 }
 
+// Left and right edges, in document units.
+struct Extent {
+    double x0 = 1e300, x1 = -1e300;
+    bool empty() const { return x0 > x1; }
+};
+
+// Grows `ext` to cover the shapes inside e. It goes by each shape's own box: lunasvg's box for a
+// group also counts its empty children, at the page's corner.
+void addShapeExtent(const lunasvg::Element& e, Extent& ext) {
+    for (const lunasvg::Element& c : childElements(e)) {
+        if (!childElements(c).empty()) {
+            addShapeExtent(c, ext);
+            continue;
+        }
+        const lunasvg::Box b = c.getGlobalBoundingBox();
+        if (b.w <= 0 && b.h <= 0) continue;
+        ext.x0 = std::min(ext.x0, double(b.x));
+        ext.x1 = std::max(ext.x1, double(b.x + b.w));
+    }
+}
+
 // Where the pinned column ends for one staff of the first bar: just past its last key-signature
 // accidental (or its clef, without one), but never into the time signature. -1 if it has neither.
 double staffPinRight(const lunasvg::Element& staff, double space) {
@@ -154,18 +175,47 @@ std::optional<ScoreLayout> findScoreLayout(const SvgDocument& doc) {
         s.bandBottom = i + 1 == layout.staves.size() ? doc.height() : (s.bottom + layout.staves[i + 1].top) / 2;
     }
 
-    // Bars: where the first staff's lines start and end in each.
+    // Bars: where the first staff's lines start and end in each, and where each bar's barlines are.
+    std::vector<std::vector<Extent>> barlines;  // one list for each of barStarts
     for (const lunasvg::Element& m : measures) {
+        bool found = false;
         for (const lunasvg::Element& staff : childElements(m)) {
             if (!hasClass(staff, "staff")) continue;
             const std::vector<lunasvg::Box> lines = staffLines(staff);
             if (lines.empty()) continue;
             layout.barStarts.push_back(lines.front().x);
             layout.end = std::max(layout.end, double(lines.front().x + lines.front().w));
+            found = true;
             break;
+        }
+        if (!found) continue;
+        std::vector<Extent>& own = barlines.emplace_back();
+        for (const lunasvg::Element& c : childElements(m)) {
+            if (!hasClass(c, "barLine")) continue;
+            Extent ext;
+            addShapeExtent(c, ext);
+            if (!ext.empty()) own.push_back(ext);
         }
     }
     if (layout.barStarts.empty()) return std::nullopt;
+
+    // Inside each bar: trimmed by any barline (its own, or a neighbour's) that reaches into it, on
+    // the side the barline is nearer.
+    const size_t bars = layout.barStarts.size();
+    for (size_t i = 0; i < bars; ++i) {
+        const double start = layout.barStarts[i], stop = i + 1 < bars ? layout.barStarts[i + 1] : layout.end;
+        ScoreLayout::Span inside{start, stop};
+        for (size_t j = i > 0 ? i - 1 : 0; j <= i + 1 && j < bars; ++j)
+            for (const Extent& b : barlines[j]) {
+                if (b.x1 <= start || b.x0 >= stop) continue;
+                if (b.x0 + b.x1 < start + stop)
+                    inside.left = std::max(inside.left, b.x1);
+                else
+                    inside.right = std::min(inside.right, b.x0);
+            }
+        if (inside.left >= inside.right) inside = {start, stop};
+        layout.barInsides.push_back(inside);
+    }
 
     // The pinned column: as wide as the widest staff's clef and key signature need.
     layout.pinRight = layout.barStarts.front() + 3 * layout.staffSpace;  // if no staff says otherwise

@@ -108,6 +108,40 @@ TEST_SUITE("sixel round trip") {
         CHECK(shades.size() == 8);
     }
 
+    TEST_CASE("marked pixels come back in their tone's ink, and unmarked ones in the plain ink") {
+        // Multiples of 20%, which sixel sends exactly.
+        const Inks inks{RGB{0, 0, 0}, RGB{0, 204, 51}, RGB{204, 153, 0}, RGB{204, 0, 0}};
+        for (bool isOpaque : {true, false}) {
+            CAPTURE(isOpaque);
+            Canvas c(8, 7);  // two bands
+            for (int y = 0; y < c.h; ++y)
+                for (int x = 0; x < c.w; ++x) c.at(x, y) = (x + y) % 3 ? 255 : 0;
+            c.tone.resize(c.px.size());
+            for (size_t i = 0; i < c.tone.size(); ++i) c.tone[i] = uint8_t(i % 4);
+            const SixelDecodeResult r = decodeSixel(encodeSixel(c, inks, kWhite, isOpaque));
+            REQUIRE(r.error == "");
+            int wrong = 0;
+            for (int y = 0; y < c.h; ++y)
+                for (int x = 0; x < c.w; ++x) {
+                    const Pixel want = c.at(x, y) ? opaque(inks[size_t(y) * c.w + x & 3]) : isOpaque ? opaque(kWhite) : Pixel{};
+                    if (r.image.at(x, y) != want) ++wrong;
+                }
+            CHECK(wrong == 0);
+        }
+    }
+
+    TEST_CASE("the palette only has the tones in the picture") {
+        const Inks inks{kBlack, RGB{0, 204, 51}, RGB{204, 153, 0}, RGB{204, 0, 0}};
+        Canvas c = filled(2, 6, 255);
+        c.tone.assign(c.px.size(), uint8_t(Tone::Plain));
+        CHECK(encodeSixel(c, inks, kWhite, true) == encodeSixel(filled(2, 6, 255), kBlack, kWhite, true));
+        c.tone[0] = uint8_t(Tone::Removed);
+        const std::string out = encodeSixel(c, inks, kWhite, true);
+        CHECK(out.find("#14;2;") != std::string::npos);   // paper, 7 plain shades and 7 red ones
+        CHECK(out.find("#15;2;") == std::string::npos);
+        CHECK(out.find("#14;2;80;0;0") != std::string::npos);  // the darkest red is the red ink
+    }
+
     TEST_CASE("an empty canvas is still a valid image") {
         const SixelDecodeResult r = decodeSixel(encodeSixel(Canvas(0, 0), kBlack, kWhite, true));
         CHECK(r.error == "");

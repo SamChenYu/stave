@@ -107,6 +107,21 @@ TEST_SUITE("kitty encoder") {
         CHECK(wrong == 0);
     }
 
+    TEST_CASE("marked pixels are in their tone's ink") {
+        const Inks inks{kInk, RGB{0, 255, 0}, RGB{255, 255, 0}, RGB{255, 0, 0}};
+        Canvas c(4, 1);
+        c.px = {255, 255, 255, 128};
+        c.tone = {uint8_t(Tone::Plain), uint8_t(Tone::Added), uint8_t(Tone::Changed), uint8_t(Tone::Removed)};
+        const KittyImage img = parseKitty(encodeKitty(c, inks, kPaper, /*opaque=*/false, /*moveCursor=*/false));
+        REQUIRE(img.pixels.size() == 4 * 4);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(uint8_t(img.pixels[i * 4]) == inks[i].r);
+            CHECK(uint8_t(img.pixels[i * 4 + 1]) == inks[i].g);
+            CHECK(uint8_t(img.pixels[i * 4 + 2]) == inks[i].b);
+            CHECK(uint8_t(img.pixels[i * 4 + 3]) == c.px[i]);
+        }
+    }
+
     TEST_CASE("for printing, the cursor moves below the image") {
         const std::string out = encodeKitty(Canvas(1, 1), kInk, kPaper, false, /*moveCursor=*/true);
         CHECK(out.find("C=1") == std::string::npos);
@@ -131,6 +146,38 @@ TEST_SUITE("braille encoder") {
         c.at(0, 0) = kBrailleThreshold;
         c.at(2, 0) = kBrailleThreshold - 1;
         CHECK(encodeBraille(c) == std::vector<std::string>{"⠁⠀"});
+    }
+
+    TEST_CASE("marked characters are in the terminal's green, yellow or red, back to its text colour after") {
+        Canvas c(10, 4);
+        std::fill(c.px.begin(), c.px.end(), uint8_t(255));
+        c.px[8] = c.px[9] = c.px[18] = c.px[19] = c.px[28] = c.px[29] = c.px[38] = c.px[39] = 0;  // last cell blank
+        c.tone.assign(c.px.size(), uint8_t(Tone::Plain));
+        for (int y = 0; y < 4; ++y) {
+            c.tone[size_t(y) * 10 + 2] = c.tone[size_t(y) * 10 + 3] = uint8_t(Tone::Added);
+            c.tone[size_t(y) * 10 + 4] = uint8_t(Tone::Removed);  // half of the third cell: a tie stays plain
+            c.tone[size_t(y) * 10 + 6] = c.tone[size_t(y) * 10 + 7] = uint8_t(Tone::Changed);
+            c.tone[size_t(y) * 10 + 8] = c.tone[size_t(y) * 10 + 9] = uint8_t(Tone::Removed);  // no dots: no colour
+        }
+        CHECK(encodeBraille(c) == std::vector<std::string>{"⣿\x1b[32m⣿\x1b[39m⣿\x1b[33m⣿⠀\x1b[39m"});
+    }
+
+    TEST_CASE("a tone that stands in for a clashing theme colour is given exactly") {
+        Canvas c(4, 4);
+        std::fill(c.px.begin(), c.px.end(), uint8_t(255));
+        c.tone.assign(c.px.size(), uint8_t(Tone::Added));
+        for (int y = 0; y < 4; ++y) c.tone[size_t(y) * 4 + 2] = c.tone[size_t(y) * 4 + 3] = uint8_t(Tone::Removed);
+        const Inks inks{RGB{1, 2, 3}, RGB{90, 170, 255}, RGB{4, 5, 6}, RGB{7, 8, 9}};
+        const ToneColours colours = toneColours(inks, {false, true, false, false});
+        CHECK(encodeBraille(c, colours) == std::vector<std::string>{"\x1b[38;2;90;170;255m⣿\x1b[31m⣿\x1b[39m"});
+        CHECK(toneColours(inks, {}) == terminalToneColours());
+    }
+
+    TEST_CASE("without marks, rows have no colour codes") {
+        Canvas c(2, 4);
+        std::fill(c.px.begin(), c.px.end(), uint8_t(255));
+        c.tone.assign(c.px.size(), uint8_t(Tone::Plain));
+        CHECK(encodeBraille(c) == std::vector<std::string>{"⣿"});
     }
 
     TEST_CASE("sizes that don't fill whole cells still get a character for the remainder") {

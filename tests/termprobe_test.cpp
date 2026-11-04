@@ -1,6 +1,9 @@
 #include <doctest/doctest.h>
 
+#include <array>
+#include <ostream>  // lets doctest print std::string
 #include <string>
+#include <vector>
 
 #include "termprobe.hpp"
 
@@ -15,6 +18,9 @@ const std::string kAllReplies =
     "\x1b[4;570;1080t"
     "\x1b]10;rgb:cccc/cccc/cccc\x1b\\"
     "\x1b]11;rgb:0c0c/0c0c/0c0c\x1b\\"
+    "\x1b]4;1;rgb:cdcd/3131/3131\x1b\\"
+    "\x1b]4;2;rgb:0d0d/bcbc/7979\x1b\\"
+    "\x1b]4;3;rgb:e5e5/e5e5/1010\x1b\\"
     "\x1b[?61;4;6;7;14;21;22;23;24;28;32;42c";
 
 }  // namespace
@@ -31,6 +37,12 @@ TEST_SUITE("terminal replies") {
         CHECK(*r.fg == RGB{204, 204, 204});
         REQUIRE(r.bg);
         CHECK(*r.bg == RGB{12, 12, 12});
+        REQUIRE(r.red);
+        CHECK(*r.red == RGB{205, 49, 49});
+        REQUIRE(r.green);
+        CHECK(*r.green == RGB{13, 188, 121});
+        REQUIRE(r.yellow);
+        CHECK(*r.yellow == RGB{229, 229, 16});
     }
 
     TEST_CASE("a terminal that only answers device attributes") {
@@ -151,6 +163,123 @@ TEST_SUITE("colours") {
         CHECK(c.ink == RGB{204, 204, 204});
         CHECK(c.paper == RGB{12, 12, 12});
         CHECK(!c.opaque);
+    }
+
+    TEST_CASE("marked bars are in the theme's green, yellow and red") {
+        TerminalInfo t;
+        t.fg = RGB{204, 204, 204};
+        t.bg = RGB{12, 12, 12};
+        t.red = RGB{205, 49, 49};
+        t.green = RGB{13, 188, 121};
+        t.yellow = RGB{229, 229, 16};
+        const InkAndPaper c = chooseColours(t);
+        CHECK(c.added == RGB{13, 188, 121});
+        CHECK(c.changed == RGB{229, 229, 16});
+        CHECK(c.removed == RGB{205, 49, 49});
+        const Inks inks = c.inks();
+        CHECK(inks[size_t(Tone::Plain)] == RGB{204, 204, 204});
+        CHECK(inks[size_t(Tone::Removed)] == RGB{205, 49, 49});
+    }
+
+    TEST_CASE("without the theme's colours, marks are in colours that suit the background") {
+        TerminalInfo dark;
+        dark.fg = RGB{204, 204, 204};
+        dark.bg = RGB{12, 12, 12};
+        TerminalInfo light;
+        light.fg = RGB{30, 30, 30};
+        light.bg = RGB{250, 250, 250};
+        const InkAndPaper d = chooseColours(dark), l = chooseColours(light), unknown = chooseColours(TerminalInfo{});
+        CHECK(d.removed.r > l.removed.r);  // lighter on a dark background
+        CHECK(d.added.g > l.added.g);
+        CHECK(unknown.removed == l.removed);  // black on white is a light background
+    }
+
+    TEST_CASE("an ordinary theme's colours are used as they are, with nothing to explain") {
+        TerminalInfo t;
+        t.fg = RGB{204, 204, 204};
+        t.bg = RGB{12, 12, 12};
+        t.red = RGB{205, 49, 49};
+        t.green = RGB{13, 188, 121};
+        t.yellow = RGB{229, 229, 16};
+        std::vector<std::string> notes;
+        const InkAndPaper c = chooseColours(t, &notes);
+        CHECK(c.added == RGB{13, 188, 121});
+        CHECK(notes.empty());
+        CHECK(c.exact == std::array<bool, kToneCount>{});
+        // ...and so are stave's own, on dark and light backgrounds and on a page.
+        t.red = t.green = t.yellow = std::nullopt;
+        chooseColours(t, &notes);
+        t.fg = RGB{30, 30, 30};
+        t.bg = RGB{250, 250, 250};
+        chooseColours(t, &notes);
+        chooseColours(TerminalInfo{}, &notes);
+        CHECK(notes.empty());
+    }
+
+    TEST_CASE("on green text, added bars aren't green") {
+        // Lime-green text on black, with a theme green much like it.
+        TerminalInfo t;
+        t.fg = RGB{151, 245, 104};
+        t.bg = RGB{0, 0, 0};
+        t.green = RGB{110, 240, 80};
+        t.yellow = RGB{240, 200, 60};
+        t.red = RGB{255, 90, 90};
+        std::vector<std::string> notes;
+        const InkAndPaper c = chooseColours(t, &notes);
+        CHECK(c.added == RGB{90, 170, 255});  // stave's green is too green as well: the blue backup
+        CHECK(c.changed == RGB{240, 200, 60});
+        CHECK(c.removed == RGB{255, 90, 90});
+        CHECK(c.exact == std::array<bool, kToneCount>{false, true, false, false});
+        REQUIRE(notes.size() == 1);
+        CHECK(notes[0] ==
+              "added #5aaaff: the theme's green #6ef050 is too like the text colour, and stave's usual green "
+              "#5fc873 is too like the text colour");
+    }
+
+    TEST_CASE("a mark too faint on the background is replaced") {
+        TerminalInfo t;
+        t.fg = RGB{30, 30, 30};
+        t.bg = RGB{250, 250, 250};
+        t.yellow = RGB{250, 240, 120};  // pale yellow on white
+        std::vector<std::string> notes;
+        const InkAndPaper c = chooseColours(t, &notes);
+        CHECK(c.changed == RGB{175, 110, 0});
+        CHECK(c.exact[size_t(Tone::Changed)]);
+        REQUIRE(notes.size() == 1);
+        CHECK(notes[0] == "changed #af6e00: the theme's yellow #faf078 is too faint on the background");
+    }
+
+    TEST_CASE("marks are kept apart from each other") {
+        TerminalInfo t;
+        t.fg = RGB{204, 204, 204};
+        t.bg = RGB{12, 12, 12};
+        t.green = RGB{200, 200, 60};  // a yellowish green...
+        t.yellow = RGB{215, 195, 50};  // ...and a yellow much like it
+        std::vector<std::string> notes;
+        const InkAndPaper c = chooseColours(t, &notes);
+        CHECK(c.added == RGB{200, 200, 60});
+        CHECK(c.changed == RGB{255, 150, 40});  // stave's yellow is too like it as well: the orange backup
+        REQUIRE(notes.size() == 1);
+        CHECK(notes[0].find("too like the added colour") != std::string::npos);
+    }
+
+    TEST_CASE("a theme of greys gets stave's own colours") {
+        TerminalInfo t;
+        t.fg = RGB{204, 204, 204};
+        t.bg = RGB{12, 12, 12};
+        t.red = t.green = t.yellow = RGB{180, 180, 180};
+        const InkAndPaper c = chooseColours(t);
+        CHECK(c.added == RGB{95, 200, 115});
+        CHECK(c.changed == RGB{230, 190, 70});
+        CHECK(c.removed == RGB{240, 95, 95});
+        CHECK(c.exact == std::array<bool, kToneCount>{false, true, true, true});
+    }
+
+    TEST_CASE("the contrast ratio and colour distance") {
+        CHECK(contrastRatio({0, 0, 0}, {255, 255, 255}) == doctest::Approx(21));
+        CHECK(contrastRatio({90, 90, 90}, {90, 90, 90}) == doctest::Approx(1));
+        CHECK(markColourDistance({0, 0, 0}, {255, 255, 255}) == doctest::Approx(0).epsilon(1e-6));  // greys
+        CHECK(markColourDistance({255, 0, 0}, {0, 255, 0}) > 0.4);
     }
 
     TEST_CASE("with either colour unknown, black ink on a white page") {

@@ -136,6 +136,50 @@ TEST_SUITE("svg rendering") {
         CHECK(a.px == b.px);
     }
 
+    TEST_CASE("tone regions mark the pixels they cover, wherever the window is") {
+        std::string error;
+        auto doc = SvgDocument::fromData(filledSvg(100, 50, "fill=\"#000\""), error);
+        REQUIRE(doc);
+        CHECK(doc->render(2, 0, 0, 200, 100).tone.empty());  // no regions: no tones at all
+        doc->setToneRegions({{10, 5, 30, 20, Tone::Added}, {25, 0, 40, 10, Tone::Removed}});
+        // At 2 pixels per unit, offset by (6, 4): the first region covers canvas pixels x 14-53 and
+        // y 6-35, the second x 44-73 and y 0-15.
+        const Canvas c = doc->render(2, 6, 4, 100, 50);
+        REQUIRE(c.tone.size() == c.px.size());
+        CHECK(c.toneAt(13, 6) == Tone::Plain);  // just left of the first region
+        CHECK(c.toneAt(14, 6) == Tone::Added);  // its top-left corner
+        CHECK(c.toneAt(53, 35) == Tone::Added);  // its bottom-right corner
+        CHECK(c.toneAt(54, 35) == Tone::Plain);
+        CHECK(c.toneAt(53, 36) == Tone::Plain);
+        CHECK(c.toneAt(50, 15) == Tone::Removed);  // where they overlap, the second wins
+        CHECK(c.toneAt(50, 16) == Tone::Added);
+        CHECK(c.toneAt(73, 0) == Tone::Removed);
+        CHECK(c.toneAt(74, 0) == Tone::Plain);
+    }
+
+    TEST_CASE("regions outside the window leave the canvas without tones") {
+        std::string error;
+        auto doc = SvgDocument::fromData(filledSvg(100, 50, "fill=\"#000\""), error);
+        REQUIRE(doc);
+        doc->setToneRegions({{80, 0, 100, 50, Tone::Changed}});
+        CHECK(doc->render(1, 0, 0, 50, 50).tone.empty());
+    }
+
+    TEST_CASE("the pinned column stays plain") {
+        std::string error;
+        auto doc = SvgDocument::fromData(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"10\"><g class=\"system\">"
+            "<rect x=\"0\" width=\"100\" height=\"10\"/></g></svg>",
+            error);
+        REQUIRE(doc);
+        REQUIRE(doc->splitInto(".system") == 1);
+        doc->pinColumn(20, {0});
+        doc->setToneRegions({{0, 0, 100, 10, Tone::Added}});
+        const Canvas c = doc->render(1, 30, 0, 50, 10);
+        CHECK(c.toneAt(19, 5) == Tone::Plain);
+        CHECK(c.toneAt(20, 5) == Tone::Added);
+    }
+
     TEST_CASE("a very tall SVG is rejected instead of allocating a huge image") {
         const SvgRenderResult r = renderSvgData(filledSvg(1, 100, "fill=\"#000\""), 1000);  // 100,000 pixels tall
         CHECK(!r.canvas);

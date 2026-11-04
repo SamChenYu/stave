@@ -3,11 +3,15 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <string>
+#include <utility>
 #include <system_error>
 
 const char* const kTerminalQueries =
-    "\x1b[16t\x1b[14t\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
+    "\x1b[16t\x1b[14t\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]4;1;?\x1b\\\x1b]4;2;?\x1b\\\x1b]4;3;?\x1b\\"
+    "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
 
 namespace {
 
@@ -84,6 +88,9 @@ TerminalReplies parseTerminalReplies(std::string_view received) {
     findSizeReply(received, "\x1b[4;", r.windowW, r.windowH);
     r.fg = findColourReply(received, "\x1b]10;rgb:");
     r.bg = findColourReply(received, "\x1b]11;rgb:");
+    r.red = findColourReply(received, "\x1b]4;1;rgb:");
+    r.green = findColourReply(received, "\x1b]4;2;rgb:");
+    r.yellow = findColourReply(received, "\x1b]4;3;rgb:");
     return r;
 }
 
@@ -129,6 +136,9 @@ TerminalInfo combineTerminalInfo(const WindowSize& ws, const TerminalReplies& r)
     t.kitty = r.kitty;
     t.fg = r.fg;
     t.bg = r.bg;
+    t.red = r.red;
+    t.green = r.green;
+    t.yellow = r.yellow;
     return t;
 }
 
@@ -150,9 +160,117 @@ TerminalInfo probeTerminal(int timeoutMs) {
     return combineTerminalInfo(ws, replies);
 }
 
-InkAndPaper chooseColours(const TerminalInfo& t) {
-    if (t.fg && t.bg) return {*t.fg, *t.bg, false};
-    return {{0, 0, 0}, {255, 255, 255}, true};
+namespace {
+
+// Diff inks that read well on a dark background, and on a light one: the usual green, yellow and
+// red, then backups for when those clash with the text colour (blue, orange and magenta).
+constexpr RGB kAddedOnDark{95, 200, 115}, kChangedOnDark{230, 190, 70}, kRemovedOnDark{240, 95, 95};
+constexpr RGB kAddedOnLight{25, 130, 55}, kChangedOnLight{175, 110, 0}, kRemovedOnLight{195, 35, 40};
+constexpr RGB kAddedBackupOnDark{90, 170, 255}, kChangedBackupOnDark{255, 150, 40}, kRemovedBackupOnDark{230, 110, 230};
+constexpr RGB kAddedBackupOnLight{25, 95, 200}, kChangedBackupOnLight{200, 90, 0}, kRemovedBackupOnLight{165, 40, 160};
+
+bool isDark(RGB c) { return 299 * c.r + 587 * c.g + 114 * c.b < 128 * 1000; }
+
+double linear(uint8_t v) {
+    const double c = v / 255.0;
+    return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double luminance(RGB c) { return 0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b); }
+
+std::string hex(RGB c) {
+    char buf[8];
+    std::snprintf(buf, sizeof buf, "#%02x%02x%02x", c.r, c.g, c.b);
+    return buf;
+}
+
+}  // namespace
+
+double contrastRatio(RGB a, RGB b) {
+    const double la = luminance(a), lb = luminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+double markColourDistance(RGB a, RGB b) {
+    // The a and b axes of OKLab (Björn Ottosson's): green to red, and blue to yellow.
+    auto ab = [](RGB c) {
+        const double r = linear(c.r), g = linear(c.g), bl = linear(c.b);
+        const double l = std::cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl);
+        const double m = std::cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl);
+        const double s = std::cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl);
+        return std::pair{1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                         0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s};
+    };
+    const auto [a1, b1] = ab(a);
+    const auto [a2, b2] = ab(b);
+    return std::hypot(a1 - a2, b1 - b2);
+}
+
+InkAndPaper chooseColours(const TerminalInfo& t, std::vector<std::string>* notes) {
+    const bool known = t.fg && t.bg;
+    InkAndPaper c{};
+    c.ink = known ? *t.fg : RGB{0, 0, 0};
+    c.paper = known ? *t.bg : RGB{255, 255, 255};
+    c.opaque = !known;
+    const bool dark = isDark(c.paper);
+
+    struct Choice {
+        Tone tone;
+        const char* themeName;
+        std::optional<RGB> theme;  // only used when the terminal's own colours are
+        RGB usual, backup;
+        RGB* out;
+    };
+    const Choice choices[] = {
+        {Tone::Added, "green", t.green, dark ? kAddedOnDark : kAddedOnLight,
+         dark ? kAddedBackupOnDark : kAddedBackupOnLight, &c.added},
+        {Tone::Changed, "yellow", t.yellow, dark ? kChangedOnDark : kChangedOnLight,
+         dark ? kChangedBackupOnDark : kChangedBackupOnLight, &c.changed},
+        {Tone::Removed, "red", t.red, dark ? kRemovedOnDark : kRemovedOnLight,
+         dark ? kRemovedBackupOnDark : kRemovedBackupOnLight, &c.removed},
+    };
+    const char* const toneNames[kToneCount] = {"text", "added", "changed", "removed"};
+
+    std::vector<Tone> chosen;  // the marks picked so far, which later ones must differ from
+    for (const Choice& ch : choices) {
+        // Why a colour can't be used, or "" if it can.
+        auto clash = [&](RGB colour) -> std::string {
+            if (contrastRatio(colour, c.paper) < kMinMarkContrast) return "too faint on the background";
+            if (markColourDistance(colour, c.ink) < kMinMarkDistance) return "too like the text colour";
+            for (Tone other : chosen)
+                if (markColourDistance(colour, c.inks()[size_t(other)]) < kMinMarkDistance)
+                    return std::string("too like the ") + toneNames[int(other)] + " colour";
+            return "";
+        };
+        struct Candidate {
+            RGB colour;
+            std::string name;
+        };
+        std::vector<Candidate> candidates;
+        if (known && ch.theme) candidates.push_back({*ch.theme, std::string("the theme's ") + ch.themeName});
+        candidates.push_back({ch.usual, "stave's usual " + std::string(ch.themeName)});
+        candidates.push_back({ch.backup, "the backup"});
+
+        std::string why;  // what was wrong with the ones passed over
+        size_t pick = 0;
+        for (; pick < candidates.size(); ++pick) {
+            const std::string problem = clash(candidates[pick].colour);
+            if (problem.empty()) break;
+            why += std::string(why.empty() ? "" : ", and ") + candidates[pick].name + " " +
+                   hex(candidates[pick].colour) + " is " + problem;
+        }
+        if (pick == candidates.size()) {  // nothing fits: the backup is the least likely to clash
+            pick = candidates.size() - 1;
+            why += ", but there's nothing better";
+        }
+        *ch.out = candidates[pick].colour;
+        if (!why.empty()) {
+            c.exact[size_t(ch.tone)] = true;
+            if (notes) notes->push_back(std::string(toneNames[int(ch.tone)]) + " " + hex(*ch.out) + ": " + why);
+        }
+        chosen.push_back(ch.tone);
+    }
+    return c;
 }
 
 const char* outputName(Output o) {

@@ -11,6 +11,9 @@
 
 *ascii and unicode is too coarse to render good musical notation, therefore it gets rendered to an svg using `Verovio` before getting rasterized with `lunasvg` onto the terminal via sixel. kitty is supported, but buggy so disabled for now. if your terminal has niether of these, braille is used as a fallback.*
 
+It can also colour bars green, yellow and red to show what changed between two versions of a score,
+which is how [motif](https://github.com/SamChenYu/motif) shows its diffs.
+
 ## Build
 
 Requires CMake 3.20+ and a C++20 compiler (MSVC 2022, GCC 11+ or Clang 14+).
@@ -23,14 +26,15 @@ cmake --build build --config Release
 
 ## Run
 
-Draws real pixels in terminals that can show images: kitty graphics (kitty, Ghostty, WezTerm) or
-sixel (Windows Terminal 1.22+, WezTerm, foot, iTerm2, ...). Anywhere else it falls back to braille
-characters, 2x4 dots each.
+Draws  pixels in terminals that can show sixel images (Windows Terminal 1.22+, WezTerm, foot,
+iTerm2). Anywhere else it falls back to braille characters, 2x4 dots each (looks pretty bad tho). Kitty graphics
+(kitty, Ghostty, WezTerm) also work but are never picked automatically for now, as it flickers. using`--kitty` forces them.
 
 ```
 stave examples/beethoven-op18no1-mvt1.mxl   # a score full screen (MusicXML .musicxml/.xml/.mxl, MEI or ABC)
 stave drawing.svg            # ...or an SVG
 stave FILE --bar 9 --staff 2 # start somewhere else in a score (counting from 1)
+stave FILE --added 40-60 --changed 12-15@2 --removed 7  # colour bars to show a diff
 stave FILE --width 400       # start at another width
 stave FILE --paper           # dark ink on a cream page, instead of the terminal's own colours
 stave FILE --sixel           # force an output: --sixel, --kitty or --braille
@@ -41,12 +45,9 @@ stave --test-pattern         # a test image, to check that this terminal can sho
 stave --terminal-info        # what stave found out about this terminal
 ```
 
-In a terminal, a file opens in a full-screen viewer; when the output isn't a terminal, it prints
-instead. A score is laid out as one long line of music that scrolls sideways, starting with each
-staff about two and a half text rows tall, and the opening clefs, key signatures and part names
-stay pinned on the left. stave draws in the terminal's own colours, and finds Verovio's music
-fonts in `verovio-data/` next to the executable (the build puts them there); `--verovio-data DIR`
-points elsewhere. Set `STAVE_DUMP_SVG=file.svg` to save the SVG Verovio drew, for debugging.
+
+
+## Controls for the terminal pager
 
 | Key | In a score | In an SVG |
 |---|---|---|
@@ -59,6 +60,22 @@ points elsewhere. Set `STAVE_DUMP_SVG=file.svg` to save the SVG Verovio drew, fo
 | q / Esc / Ctrl+C | quit | quit |
 
 The example scores in `examples/` are public-domain pieces; see `examples/README.md`.
+
+## Showing a diff
+
+`--added`, `--changed` and `--removed` colour bars green, yellow and red. this is how [motif](https://github.com/SamChenYu/motif) shows what changed between two versions of a score.
+
+```
+stave new.musicxml --added 40-60 --changed 12-15@2,20@3 --removed 7
+```
+
+| Value | Marks |
+|---|---|
+| `7` | bar 7 |
+| `12-15` | bars 12 to 15 |
+| `12-15@2` | bars 12 to 15, only on staff 2 |
+| `3,7-9@1,20` | any mix of those |
+
 
 ## Tests
 
