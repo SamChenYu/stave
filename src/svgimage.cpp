@@ -15,6 +15,13 @@ struct SvgDocument::Piece {
     double x0, y0, x1, y1;   // where it is, in document units
 };
 
+struct SvgDocument::ToneElement {
+    lunasvg::Element element;
+    lunasvg::Matrix parent;  // as for a piece
+    double x0, y0, x1, y1;   // where it is, in document units
+    Tone tone;
+};
+
 SvgDocument::SvgDocument(std::unique_ptr<lunasvg::Document> doc)
     : doc_(std::move(doc)), width_(doc_->width()), height_(doc_->height()) {}
 
@@ -120,7 +127,38 @@ Canvas SvgDocument::render(double scale, double x, double y, int w, int h) const
             std::fill(c.tone.begin() + (ptrdiff_t(row) * w + x0), c.tone.begin() + (ptrdiff_t(row) * w + x1),
                       uint8_t(r.tone));
     }
+    markToneElements(c, scale, rx, ry, pin);
     return c;
+}
+
+void SvgDocument::markToneElements(Canvas& c, double scale, double rx, double ry, int pin) const {
+    const auto s = float(scale);
+    for (const ToneElement& e : toneElements_) {
+        // Its box on the canvas, widened a little for strokes and soft edges, and kept right of the pin.
+        const int x0 = std::clamp(int(std::floor(e.x0 * scale - rx)) - 2, pin, c.w);
+        const int x1 = std::clamp(int(std::ceil(e.x1 * scale - rx)) + 2, pin, c.w);
+        const int y0 = std::clamp(int(std::floor(e.y0 * scale - ry)) - 2, 0, c.h);
+        const int y1 = std::clamp(int(std::ceil(e.y1 * scale - ry)) + 2, 0, c.h);
+        if (x0 >= x1 || y0 >= y1) continue;
+        lunasvg::Bitmap bmp(x1 - x0, y1 - y0);
+        if (bmp.isNull()) continue;
+        bmp.clear(0);
+        // The bitmap's top-left pixel is canvas pixel (x0, y0), which shows document pixel (rx + x0, ry + y0).
+        const lunasvg::Matrix frame(s, 0, 0, s, -float(rx + x0), -float(ry + y0));
+        e.element.render(bmp, frame * e.parent);
+        const uint8_t* data = bmp.data();
+        for (int row = 0; row < bmp.height(); ++row) {
+            const uint8_t* src = data + size_t(row) * bmp.stride();
+            for (int col = 0; col < bmp.width(); ++col) {
+                uint32_t argb;
+                std::memcpy(&argb, src + size_t(col) * 4, 4);
+                const int own = int(argb >> 24), all = c.at(x0 + col, y0 + row);
+                if (own == 0 || 2 * own < all) continue;
+                if (c.tone.empty()) c.tone.assign(c.px.size(), uint8_t(Tone::Plain));
+                c.tone[size_t(y0 + row) * size_t(c.w) + size_t(x0 + col)] = uint8_t(e.tone);
+            }
+        }
+    }
 }
 
 size_t SvgDocument::pieceCount() const { return pieces_.size(); }
@@ -173,6 +211,19 @@ void addDrawnExtent(const lunasvg::Element& e, Extent& ext) {
 }
 
 }  // namespace
+
+size_t SvgDocument::setToneElements(const std::vector<std::pair<std::string, Tone>>& elements) {
+    toneElements_.clear();
+    for (const auto& [id, tone] : elements) {
+        const lunasvg::Element e = doc_->getElementById(id);
+        if (!e) continue;
+        Extent ext;
+        addDrawnExtent(e, ext);
+        if (ext.empty()) continue;
+        toneElements_.push_back({e, e.parentElement().getGlobalMatrix(), ext.x0, ext.y0, ext.x1, ext.y1, tone});
+    }
+    return toneElements_.size();
+}
 
 size_t SvgDocument::splitInto(const std::string& selector) {
     pieces_.clear();

@@ -37,11 +37,12 @@ const char* const kUsage =
     "                   shown full screen: arrows/hjkl move, PgUp/PgDn page, +/- zoom, q quits\n"
     "  --svg FILE       treat FILE as an SVG, whatever its extension\n"
     "  --width N        how wide to draw it at first, in pixels\n"
-    "  --bar N, --staff N  for a score: start at this bar and staff (counting from 1)\n"
+    "  --bar N, --staff N  for a score: start at this bar (its printed number) and staff (counting\n"
+    "                   from 1)\n"
     "  --added BARS, --changed BARS, --removed BARS\n"
     "                   for a score: draw these bars in green, yellow or red, to show a diff. BARS is\n"
-    "                   bars and ranges separated by commas, each on every staff or one (counting\n"
-    "                   from 1): --added 40-60 --changed 12-15@2,20@3 --removed 7\n"
+    "                   bar numbers and ranges separated by commas, each on every staff or one (staves\n"
+    "                   counting from 1): --added 40-60 --changed 12-15@2,20@3 --removed 7\n"
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
     "  --png OUT.png    save the first screen (1600x900, dark ink on a cream page) instead\n"
@@ -113,9 +114,10 @@ double millisecondsSince(Clock::time_point start) {
 }
 
 // Loads FILE: an SVG as it is, or a score engraved by Verovio into SVG. engraveMs is set to how
-// long Verovio took, for --bench.
+// long Verovio took, for --bench, and measureNumbers to a score's printed bar numbers.
 std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, const std::string& dataDir,
-                                          std::string& error, double& engraveMs) {
+                                          std::string& error, double& engraveMs,
+                                          std::vector<std::string>& measureNumbers) {
     engraveMs = 0;
     if (isSvg) return SvgDocument::fromFile(path, error);
     const auto start = Clock::now();
@@ -138,6 +140,7 @@ std::unique_ptr<SvgDocument> loadDocument(const std::string& path, bool isSvg, c
         error = path + ": Verovio's drawing couldn't be read: " + error;
         return nullptr;
     }
+    measureNumbers = score.measureNumbers;
     return doc;
 }
 
@@ -231,8 +234,10 @@ int run(int argc, char** argv) {
             if (!hasValue) return usageError(std::string(arg) + " needs a number");
             std::optional<int>& target = arg == "--bar" ? startBar : startStaff;
             target = parseInt(argv[++i]);
-            if (!target || *target < 1)
-                return usageError(std::string(arg) + " needs a whole number from 1, not '" + argv[i] + "'");
+            const int least = arg == "--bar" ? 0 : 1;  // a pickup is often bar 0
+            if (!target || *target < least)
+                return usageError(std::string(arg) + " needs a whole number from " + std::to_string(least) +
+                                  ", not '" + argv[i] + "'");
         } else if (arg == "--added" || arg == "--changed" || arg == "--removed") {
             const Tone tone = arg == "--added" ? Tone::Added : arg == "--changed" ? Tone::Changed : Tone::Removed;
             if (!hasValue) return usageError(std::string(arg) + " needs bars, like 7, 12-15 or 12-15@2");
@@ -261,34 +266,50 @@ int run(int argc, char** argv) {
     const bool isSvg = file && (forceSvg || isSvgFile(*file));
     Clock::time_point loadStart;
     double engraveMs = 0;
+    std::vector<std::string> measureNumbers;
     if (file) {
         std::string error;
         loadStart = Clock::now();
-        doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error, engraveMs);
+        doc = loadDocument(*file, isSvg, dataDir.value_or(defaultVerovioDataDir()), error, engraveMs,
+                           measureNumbers);
         if (!doc) {
             std::fprintf(stderr, "stave: %s\n", error.c_str());
             return 1;
         }
     }
     std::optional<ScoreLayout> layout;
+    std::optional<BarNumbers> numbers;  // a score's printed bar numbers
+    int startIndex = 0;                 // the bar to start at, counting from 0
     if (doc && !isSvg) {
         layout = findScoreLayout(*doc);
         if (layout)
             prepareForPaging(*doc, *layout);
         else
             doc->splitInto(".system");  // still draw only what's on screen, if it's laid out in systems
-        const int bars = layout ? int(layout->barStarts.size()) : 0, staves = layout ? int(layout->staves.size()) : 0;
-        if (layout && (startBar.value_or(1) > bars || startStaff.value_or(1) > staves)) {
-            std::fprintf(stderr, "stave: %s has %d bar%s and %d stave%s\n", file->c_str(), bars, bars == 1 ? "" : "s",
-                         staves, staves == 1 ? "" : "s");
-            return 1;
+        const int staves = layout ? int(layout->staves.size()) : 0;
+        if (layout) {
+            numbers = BarNumbers::of(*layout, measureNumbers);
+            if (startBar) {
+                const std::optional<std::pair<int, int>> found = numbers->find(*startBar);
+                if (!found) {
+                    std::fprintf(stderr, "stave: %s has no bar %d; %s\n", file->c_str(), *startBar,
+                                 numbers->describe().c_str());
+                    return 1;
+                }
+                startIndex = found->first;
+            }
+            if (startStaff.value_or(1) > staves) {
+                std::fprintf(stderr, "stave: %s has only %d %s\n", file->c_str(), staves,
+                             staves == 1 ? "staff" : "staves");
+                return 1;
+            }
         }
         if (!marks.empty()) {
             if (!layout) {
                 std::fprintf(stderr, "stave: can't find the bars in %s, so can't mark any\n", file->c_str());
                 return 1;
             }
-            if (const std::string error = checkMarks(marks, bars, staves); !error.empty()) {
+            if (const std::string error = checkMarks(marks, *numbers, staves); !error.empty()) {
                 std::fprintf(stderr, "stave: %s\n", error.c_str());
                 return 1;
             }
@@ -304,7 +325,8 @@ int run(int argc, char** argv) {
         if (!isSvg) opt.staffSpaceUnits = layout ? layout->staffSpace : kStaffSpaceUnits;
         if (layout) {
             opt.stops = scoreStops(*layout, doc->height());
-            opt.startBar = startBar.value_or(1);
+            opt.startBar = startIndex + 1;
+            opt.barLabels = numbers->labels();
             opt.startStaff = startStaff.value_or(1);
         }
     }

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 #include "color.hpp"
 #include "encode.hpp"
@@ -23,7 +24,8 @@ PagerLayout pagerLayout(int cols, int rows, int cellW, int cellH, Output output 
 // and staves are on screen ("bars 5-9 of 120  staves 1-4 of 4"). Otherwise "left", "right" or "N%
 // across", if the image is wider than the screen; "top", "bottom" or "N% down", if it's taller;
 // "all" if neither.
-std::string statusLine(const std::string& name, const View&, int width);
+std::string statusLine(const std::string& name, const View&, int width,
+                       const std::vector<std::string>& barLabels = {});
 
 // The starting zoom for a score, which is one long system: fitting its width would make it tiny.
 // Instead each staff space is drawn spacePx pixels tall; and if the whole system then fits on
@@ -52,6 +54,7 @@ struct PagerOptions {
                                   // 0 (and no startWidth): start fitting the screen's width
     View::Stops stops;            // for a score: where its bars and staves are
     int startBar = 1, startStaff = 1;  // for a score: where to start, counting from 1
+    std::vector<std::string> barLabels;  // for a score: each bar's printed number, for the status line
 };
 
 // The view the pager opens with, for an image area of layout's size: the starting zoom (from

@@ -33,7 +33,7 @@ iTerm2). Anywhere else it falls back to braille characters, 2x4 dots each (looks
 ```
 stave examples/beethoven-op18no1-mvt1.mxl   # a score full screen (MusicXML .musicxml/.xml/.mxl, MEI or ABC)
 stave drawing.svg            # ...or an SVG
-stave FILE --bar 9 --staff 2 # start somewhere else in a score (counting from 1)
+stave FILE --bar 9 --staff 2 # start somewhere else in a score (bars by their printed number)
 stave FILE --added 40-60 --changed 12-15@2 --removed 7  # colour bars to show a diff
 stave FILE --width 400       # start at another width
 stave FILE --paper           # dark ink on a cream page, instead of the terminal's own colours
@@ -76,6 +76,7 @@ stave new.musicxml --added 40-60 --changed 12-15@2,20@3 --removed 7
 | `12-15@2` | bars 12 to 15, only on staff 2 |
 | `3,7-9@1,20` | any mix of those |
 
+bars go by their printed numbers, so a pickup is usually bar 0. staves count from the top, starting at 1.
 
 ## Tests
 

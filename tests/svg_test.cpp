@@ -180,6 +180,46 @@ TEST_SUITE("svg rendering") {
         CHECK(c.toneAt(20, 5) == Tone::Added);
     }
 
+    TEST_CASE("an element marked by its id takes its tone, and what's under it, but nothing else") {
+        // A long line, with a square sitting on it, and another square off it.
+        std::string error;
+        auto doc = SvgDocument::fromData(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"40\">"
+            "<rect x=\"0\" y=\"19\" width=\"100\" height=\"2\"/>"
+            "<g transform=\"translate(30 0)\"><g id=\"note\"><rect x=\"0\" y=\"10\" width=\"20\" height=\"20\"/></g></g>"
+            "<rect id=\"other\" x=\"70\" y=\"10\" width=\"20\" height=\"20\"/></svg>",
+            error);
+        REQUIRE(doc);
+        CHECK(doc->setToneElements({{"note", Tone::Changed}, {"missing", Tone::Added}}) == 1);
+        for (const double x : {0.0, 17.0}) {  // and when scrolled
+            CAPTURE(x);
+            const Canvas c = doc->render(1, x, 0, 100, 40);
+            auto at = [&](int docX, int y) { return c.toneAt(docX - int(x), y); };
+            CHECK(at(40, 15) == Tone::Changed);  // the square
+            CHECK(at(40, 20) == Tone::Changed);  // the line under it
+            CHECK(at(25, 20) == Tone::Plain);    // the line beside it
+            CHECK(at(80, 15) == Tone::Plain);    // the other square
+        }
+    }
+
+    TEST_CASE("marked elements win over regions, but not in the pinned column") {
+        std::string error;
+        auto doc = SvgDocument::fromData(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"10\"><g class=\"system\">"
+            "<rect x=\"0\" width=\"100\" height=\"10\"/><rect id=\"a\" x=\"40\" width=\"20\" height=\"10\"/>"
+            "<rect id=\"b\" x=\"0\" width=\"10\" height=\"10\"/></g></svg>",
+            error);
+        REQUIRE(doc);
+        REQUIRE(doc->splitInto(".system") == 3);
+        doc->setToneRegions({{0, 0, 100, 10, Tone::Changed}});
+        doc->setToneElements({{"a", Tone::Added}, {"b", Tone::Removed}});
+        CHECK(doc->render(1, 0, 0, 100, 10).toneAt(50, 5) == Tone::Added);
+        doc->pinColumn(20, {0, 2});
+        const Canvas c = doc->render(1, 30, 0, 50, 10);
+        CHECK(c.toneAt(5, 5) == Tone::Plain);  // b, in the column
+        CHECK(c.toneAt(25, 5) == Tone::Added);  // a: right of the column, canvas column 25 shows document column 55
+    }
+
     TEST_CASE("a very tall SVG is rejected instead of allocating a huge image") {
         const SvgRenderResult r = renderSvgData(filledSvg(1, 100, "fill=\"#000\""), 1000);  // 100,000 pixels tall
         CHECK(!r.canvas);

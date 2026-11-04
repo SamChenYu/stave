@@ -85,6 +85,8 @@ TEST_SUITE("status line") {
         v.setStops(s);
         CHECK(statusLine("quartet.mxl", v, 200).rfind(" quartet.mxl  bars 1-2 of 5  staff 1 of 2  zoom 100%", 0) == 0);
         CHECK(statusLine("quartet.mxl", v, 200).find("arrows/hjkl bar/staff") != std::string::npos);
+        // With the score's printed bar numbers: a pickup bar 0, then 1 to 4.
+        CHECK(statusLine("quartet.mxl", v, 200, {"0", "1", "2", "3", "4"}).rfind(" quartet.mxl  bars 0-1 of 4  ", 0) == 0);
     }
 
     TEST_CASE("is padded or cut to exactly the width") {

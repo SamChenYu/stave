@@ -29,11 +29,11 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
-// A whole number from 1, and nothing else.
-bool readCount(std::string_view s, int& out) {
+// A whole number from `least`, and nothing else.
+bool readNumber(std::string_view s, int least, int& out) {
     s = trim(s);
     const auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
-    return !s.empty() && ec == std::errc() && end == s.data() + s.size() && out >= 1;
+    return !s.empty() && ec == std::errc() && end == s.data() + s.size() && out >= least;
 }
 
 }  // namespace
@@ -57,7 +57,7 @@ bool parseMarks(std::string_view value, Tone tone, std::vector<Mark>& marks, std
         std::string_view bars = item;
         if (const size_t at = item.find('@'); at != std::string_view::npos) {
             bars = item.substr(0, at);
-            if (!readCount(item.substr(at + 1), m.staff)) {
+            if (!readNumber(item.substr(at + 1), 1, m.staff)) {
                 error = bad + " a bar on a staff" + example + "; staves count from 1";
                 return false;
             }
@@ -65,13 +65,13 @@ bool parseMarks(std::string_view value, Tone tone, std::vector<Mark>& marks, std
         const size_t dash = bars.find('-');
         bool ok;
         if (dash == std::string_view::npos) {
-            ok = readCount(bars, m.firstBar);
+            ok = readNumber(bars, 0, m.firstBar);
             m.lastBar = m.firstBar;
         } else {
-            ok = readCount(bars.substr(0, dash), m.firstBar) && readCount(bars.substr(dash + 1), m.lastBar);
+            ok = readNumber(bars.substr(0, dash), 0, m.firstBar) && readNumber(bars.substr(dash + 1), 0, m.lastBar);
         }
         if (!ok) {
-            error = bad + " a bar or a range of bars" + example + "; bars count from 1";
+            error = bad + " a bar or a range of bars" + example;
             return false;
         }
         if (m.lastBar < m.firstBar) {
@@ -93,22 +93,32 @@ std::string toneName(Tone t) { return markOption(t) + 2; }
 
 }  // namespace
 
-std::string checkMarks(const std::vector<Mark>& marks, int bars, int staves) {
-    for (const Mark& m : marks) {
-        if (m.lastBar > bars)
-            return named(m) + ": the score has only " + std::to_string(bars) + (bars == 1 ? " bar" : " bars");
+std::string checkMarks(std::vector<Mark>& marks, const BarNumbers& numbers, int staves) {
+    for (Mark& m : marks) {
+        m.firstIndex = m.lastIndex = -1;
+        for (int bar : {m.firstBar, m.lastBar})
+            if (!numbers.find(bar))
+                return named(m) + ": the score has no bar " + std::to_string(bar) + "; " + numbers.describe();
         if (m.staff > staves)
             return named(m) + ": the score has only " + std::to_string(staves) + (staves == 1 ? " staff" : " staves");
+        // A number can be on more than one bar (a bar split in two, say): a mark covers all of them.
+        const int first = numbers.find(m.firstBar)->first, last = numbers.find(m.lastBar)->second;
+        if (last < first)
+            return named(m) + ": bar " + std::to_string(m.lastBar) + " comes before bar " + std::to_string(m.firstBar) +
+                   " in this score";
+        m.firstIndex = first;
+        m.lastIndex = last;
     }
+    const int bars = numbers.count();
     // Which mark has claimed each bar of each staff so far, so that a bar marked twice in
     // different tones is caught. Going cell by cell keeps a long list of marks quick to check.
     std::vector<int> owner(size_t(bars) * size_t(staves), -1);
     for (size_t i = 0; i < marks.size(); ++i) {
         const Mark& m = marks[i];
         const int firstStaff = m.staff > 0 ? m.staff : 1, lastStaff = m.staff > 0 ? m.staff : staves;
-        for (int bar = m.firstBar; bar <= m.lastBar; ++bar)
+        for (int bar = m.firstIndex; bar <= m.lastIndex; ++bar)
             for (int staff = firstStaff; staff <= lastStaff; ++staff) {
-                int& o = owner[size_t(bar - 1) * size_t(staves) + size_t(staff - 1)];
+                int& o = owner[size_t(bar) * size_t(staves) + size_t(staff - 1)];
                 if (o >= 0 && marks[size_t(o)].tone != m.tone)
                     return named(m) + " overlaps " + named(marks[size_t(o)]) + ": a bar can't be both " +
                            toneName(marks[size_t(o)].tone) + " and " + toneName(m.tone);
@@ -124,14 +134,15 @@ std::vector<SvgDocument::ToneRegion> toneRegions(const std::vector<Mark>& marks,
     const bool insidesKnown = layout.barInsides.size() == layout.barStarts.size();
     std::vector<SvgDocument::ToneRegion> regions;
     for (const Mark& m : marks) {
-        if (m.firstBar < 1 || m.firstBar > m.lastBar || m.lastBar > bars || m.staff < 0 || m.staff > staves) continue;
+        if (m.firstIndex < 0 || m.firstIndex > m.lastIndex || m.lastIndex >= bars || m.staff < 0 || m.staff > staves)
+            continue;
         double y0 = 0, y1 = pageHeight;
         if (m.staff > 0) {
             y0 = layout.staves[size_t(m.staff - 1)].bandTop;
             y1 = layout.staves[size_t(m.staff - 1)].bandBottom;
         }
         // One region a bar, so that the barlines between them stay plain too.
-        for (size_t b = size_t(m.firstBar - 1); b < size_t(m.lastBar); ++b) {
+        for (size_t b = size_t(m.firstIndex); b <= size_t(m.lastIndex); ++b) {
             if (insidesKnown)
                 regions.push_back({layout.barInsides[b].left, y0, layout.barInsides[b].right, y1, m.tone});
             else

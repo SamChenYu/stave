@@ -53,7 +53,7 @@ void drawFrame(const SvgDocument& doc, const View& v, const PagerLayout& layout,
     }
     // Reverse video, so the status line follows the terminal's own colours. It stops one column
     // short of the edge: writing the last cell of the last row can scroll the screen.
-    f += moveTo(rows, 1) + "\x1b[2K\x1b[7m" + statusLine(opt.name, v, cols - 1) + "\x1b[0m";
+    f += moveTo(rows, 1) + "\x1b[2K\x1b[7m" + statusLine(opt.name, v, cols - 1, opt.barLabels) + "\x1b[0m";
     f += "\x1b[?2026l";
     writeAll(f);
 }
@@ -86,19 +86,23 @@ std::string position(double at, double max, const char* start, const char* end, 
     return std::to_string(std::lround(100 * at / max)) + "%" + along;
 }
 
-// "bars 5-9 of 120", or "bar 5 of 120" when only one is on screen.
-std::string range(const char* one, const char* many, std::pair<int, int> shown, int count) {
-    const std::string of = " of " + std::to_string(count);
-    if (shown.first == shown.second) return std::string(one) + " " + std::to_string(shown.first) + of;
-    return std::string(many) + " " + std::to_string(shown.first) + "-" + std::to_string(shown.second) + of;
+// "bars 5-9 of 120", or "bar 5 of 120" when only one is on screen. `shown` counts from 1; with
+// labels (one for each of `count`), they're shown instead, and "of" the last one.
+std::string range(const char* one, const char* many, std::pair<int, int> shown, int count,
+                  const std::vector<std::string>& labels = {}) {
+    const bool labelled = int(labels.size()) == count && count > 0;
+    auto name = [&](int i) { return labelled ? labels[size_t(std::clamp(i, 1, count) - 1)] : std::to_string(i); };
+    const std::string of = " of " + name(count);
+    if (shown.first == shown.second) return std::string(one) + " " + name(shown.first) + of;
+    return std::string(many) + " " + name(shown.first) + "-" + name(shown.second) + of;
 }
 
 }  // namespace
 
-std::string statusLine(const std::string& name, const View& v, int width) {
+std::string statusLine(const std::string& name, const View& v, int width, const std::vector<std::string>& barLabels) {
     std::string where, keys;
     if (v.hasStops()) {
-        where = range("bar", "bars", v.barsOnScreen(), v.barCount());
+        where = range("bar", "bars", v.barsOnScreen(), v.barCount(), barLabels);
         if (v.staffCount() > 0) where += "  " + range("staff", "staves", v.stavesOnScreen(), v.staffCount());
         keys = "arrows/hjkl bar/staff  Shift+arrows/PgUp/PgDn page  Home/End  +/- zoom  q quit";
     } else {

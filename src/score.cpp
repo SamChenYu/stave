@@ -3,9 +3,19 @@
 #include <lunasvg.h>
 #include <toolkit.h>  // Verovio
 #include <toolkitdef.h>
+// Verovio's document, for reading its notes
+#include <doc.h>
+#include <layer.h>
+#include <measure.h>
+#include <note.h>
+#include <scoredef.h>
+#include <staff.h>
+#include <staffdef.h>
 
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
+#include <map>
 #include <system_error>
 
 #include "platform.hpp"
@@ -15,7 +25,48 @@ namespace fs = std::filesystem;
 
 namespace {
 
-EngraveResult failure(std::string message) { return {"", std::move(message)}; }
+EngraveResult failure(std::string message) { return {"", std::move(message), {}, {}}; }
+
+// Verovio's toolkit, with its document opened up (it's protected) to read the notes from.
+class NoteReadingToolkit : public vrv::Toolkit {
+public:
+    using vrv::Toolkit::Toolkit;
+
+    std::vector<ScoreNote> notes() {
+        // Each note's start within its bar is worked out with the timemap.
+        if (!m_doc.HasTimemap()) m_doc.CalculateTimemap();
+        std::map<const vrv::Object*, size_t> measureIndex;  // in document order, as in the SVG
+        for (const vrv::Object* m : m_doc.FindAllDescendantsByType(vrv::MEASURE))
+            measureIndex.emplace(m, measureIndex.size());
+        const vrv::ScoreDef* scoreDef = m_doc.GetFirstScoreDef();
+
+        std::vector<ScoreNote> out;
+        for (const vrv::Object* o : m_doc.FindAllDescendantsByType(vrv::NOTE)) {
+            const auto* note = dynamic_cast<const vrv::Note*>(o);
+            const vrv::Object* measure = o->GetFirstAncestor(vrv::MEASURE);
+            const auto* layer = dynamic_cast<const vrv::Layer*>(o->GetFirstAncestor(vrv::LAYER));
+            const vrv::Staff* staff = note ? note->GetAncestorStaff(vrv::ANCESTOR_ONLY, false) : nullptr;
+            if (!note || !measure || !staff || !measureIndex.count(measure)) continue;
+            // Verovio's pitch is as written for a transposing instrument (and as sounding under an
+            // 8va line), so add the staff's transposition, as its MIDI output does.
+            int transposition = 0;
+            if (const vrv::StaffDef* def = scoreDef ? scoreDef->GetStaffDef(staff->GetN()) : nullptr;
+                def && def->HasTransSemi())
+                transposition = def->GetTransSemi();
+            const vrv::Fraction onset = note->GetScoreTimeOnset();
+            ScoreNote n;
+            n.id = note->GetID();
+            n.measure = measureIndex.at(measure);
+            n.staff = staff->GetN();
+            n.voice = layer && layer->GetN() > 0 ? layer->GetN() : 1;
+            n.onsetNum = onset.GetNumerator();
+            n.onsetDen = onset.GetDenominator();
+            n.midi = note->GetMIDIPitch(transposition, 0);
+            out.push_back(std::move(n));
+        }
+        return out;
+    }
+};
 
 // Verovio's error messages from the last load, on one line ("" if it gave none).
 std::string verovioLog(vrv::Toolkit& tk) {
@@ -33,7 +84,7 @@ std::string defaultVerovioDataDir() {
     return (fs::path(dir.empty() ? "." : dir) / "verovio-data").string();
 }
 
-EngraveResult engraveScore(const std::string& path, const std::string& dataDir) {
+EngraveResult engraveScore(const std::string& path, const std::string& dataDir, bool readNotes) {
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) return failure("can't open " + path);
     if (!fs::is_directory(dataDir, ec))
@@ -49,7 +100,7 @@ EngraveResult engraveScore(const std::string& path, const std::string& dataDir) 
         lunasvg_add_font_face_from_file("Leipzig", false, false, (fs::path(dataDir) / "Leipzig.ttf").string().c_str());
     (void)leipzigLoaded;
 
-    vrv::Toolkit tk(/*initFont=*/false);
+    NoteReadingToolkit tk(/*initFont=*/false);
     if (!tk.SetResourcePath(dataDir)) return failure("couldn't load Verovio's music fonts from " + dataDir);
 
     // One long system and no page furniture: the pager does the scrolling.
@@ -60,6 +111,7 @@ EngraveResult engraveScore(const std::string& path, const std::string& dataDir) 
         "adjustPageWidth": true,
         "adjustPageHeight": true,
         "smuflTextFont": "none",
+        "svgAdditionalAttribute": ["measure@n"],
         "pageMarginTop": 50, "pageMarginBottom": 50, "pageMarginLeft": 50, "pageMarginRight": 50
     })");
 
@@ -70,7 +122,23 @@ EngraveResult engraveScore(const std::string& path, const std::string& dataDir) 
     if (tk.GetPageCount() < 1) return failure(path + ": the score is empty");
     std::string svg = tk.RenderToSVG(1);
     if (svg.empty()) return failure(path + ": Verovio couldn't draw it");
-    return {std::move(svg), ""};
+    std::vector<std::string> numbers = measureNumbers(svg);
+    return {std::move(svg), "", std::move(numbers), readNotes ? tk.notes() : std::vector<ScoreNote>()};
+}
+
+std::vector<std::string> measureNumbers(std::string_view svg) {
+    std::vector<std::string> numbers;
+    constexpr std::string_view kClass = "class=\"measure\"", kNumber = "data-n=\"";
+    for (size_t at = svg.find(kClass); at != std::string_view::npos; at = svg.find(kClass, at + 1)) {
+        const size_t open = svg.rfind('<', at), close = svg.find('>', at);
+        if (open == std::string_view::npos || close == std::string_view::npos) break;
+        const std::string_view tag = svg.substr(open, close - open);
+        const size_t n = tag.find(kNumber);
+        const size_t start = n == std::string_view::npos ? 0 : n + kNumber.size();
+        const size_t end = n == std::string_view::npos ? 0 : tag.find('"', start);
+        numbers.emplace_back(end == std::string_view::npos ? std::string_view() : tag.substr(start, end - start));
+    }
+    return numbers;
 }
 
 namespace {
@@ -177,13 +245,15 @@ std::optional<ScoreLayout> findScoreLayout(const SvgDocument& doc) {
 
     // Bars: where the first staff's lines start and end in each, and where each bar's barlines are.
     std::vector<std::vector<Extent>> barlines;  // one list for each of barStarts
-    for (const lunasvg::Element& m : measures) {
+    for (size_t measure = 0; measure < measures.size(); ++measure) {
+        const lunasvg::Element& m = measures[measure];
         bool found = false;
         for (const lunasvg::Element& staff : childElements(m)) {
             if (!hasClass(staff, "staff")) continue;
             const std::vector<lunasvg::Box> lines = staffLines(staff);
             if (lines.empty()) continue;
             layout.barStarts.push_back(lines.front().x);
+            layout.barMeasures.push_back(measure);
             layout.end = std::max(layout.end, double(lines.front().x + lines.front().w));
             found = true;
             break;
@@ -228,6 +298,61 @@ std::optional<ScoreLayout> findScoreLayout(const SvgDocument& doc) {
         found = true;
     }
     return layout;
+}
+
+namespace {
+
+// A printed bar number as a whole number, if it is one ("12", not "12a" or "").
+std::optional<int> wholeNumber(const std::string& s) {
+    int n = 0;
+    const auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), n);
+    if (s.empty() || ec != std::errc() || end != s.data() + s.size() || n < 0) return std::nullopt;
+    return n;
+}
+
+}  // namespace
+
+BarNumbers::BarNumbers(const std::vector<std::string>& printed, int count) {
+    bool usable = count > 0 && int(printed.size()) == count;
+    bool anyWhole = false;
+    for (size_t i = 0; usable && i < printed.size(); ++i) {
+        usable = !printed[i].empty();
+        anyWhole = anyWhole || wholeNumber(printed[i]);
+    }
+    counted_ = !(usable && anyWhole);
+    for (int i = 0; i < count; ++i) {
+        labels_.push_back(counted_ ? std::to_string(i + 1) : printed[size_t(i)]);
+        numbers_.push_back(wholeNumber(labels_.back()));
+    }
+}
+
+BarNumbers BarNumbers::of(const ScoreLayout& layout, const std::vector<std::string>& measureNumbers) {
+    std::vector<std::string> printed;
+    for (size_t measure : layout.barMeasures)
+        printed.push_back(measure < measureNumbers.size() ? measureNumbers[measure] : "");
+    return BarNumbers(printed, int(layout.barStarts.size()));
+}
+
+std::optional<std::pair<int, int>> BarNumbers::find(int number) const {
+    std::optional<std::pair<int, int>> found;
+    for (int i = 0; i < count(); ++i)
+        if (numbers_[size_t(i)] == number) {
+            if (!found) found = std::pair{i, i};
+            found->second = i;
+        }
+    return found;
+}
+
+std::string BarNumbers::describe() const {
+    std::optional<int> first, last;
+    for (const std::optional<int>& n : numbers_)
+        if (n) {
+            if (!first) first = n;
+            last = n;
+        }
+    if (!first) return "it has no numbered bars";
+    if (*first == *last) return "its only bar is " + std::to_string(*first);
+    return "its bars run from " + std::to_string(*first) + " to " + std::to_string(*last);
 }
 
 void prepareForPaging(SvgDocument& doc, const ScoreLayout& layout) {

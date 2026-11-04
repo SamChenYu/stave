@@ -67,12 +67,20 @@ public:
     // signatures, whichever bars are on screen.
     void setToneRegions(std::vector<ToneRegion> regions) { toneRegions_ = std::move(regions); }
 
+    // Elements, by id, whose ink render() draws in a tone: single notes, rather than whole bars. A
+    // pixel takes an element's tone where the element is at least half its ink, so a notehead takes
+    // the bit of staff line under it, but not the rest of the line. These win over the regions, and
+    // the pinned column stays plain. Ids not in the document are skipped; returns how many were found.
+    size_t setToneElements(const std::vector<std::pair<std::string, Tone>>& elements);
+
     // The parsed document itself, for reading its structure (as score.cpp does).
     const lunasvg::Document& lunasvgDocument() const { return *doc_; }
 
 private:
     struct Piece;
+    struct ToneElement;
     explicit SvgDocument(std::unique_ptr<lunasvg::Document>);
+    void markToneElements(Canvas& c, double scale, double rx, double ry, int pin) const;
 
     std::unique_ptr<lunasvg::Document> doc_;
     double width_ = 0, height_ = 0;
@@ -80,6 +88,7 @@ private:
     double pinWidth_ = 0;              // document units; 0: no pinned column
     std::vector<size_t> pinPieces_;    // indices into pieces_
     std::vector<ToneRegion> toneRegions_;
+    std::vector<ToneElement> toneElements_;
 
     // Draws the pieces near the window (all of them, or those in `only`) into bmp, whose top-left
     // corner is at (x, y) in pixels of the document drawn at `scale`.

@@ -66,12 +66,12 @@ std::unique_ptr<SvgDocument> engraved(const std::string& name) {
 
 // The whole of an engraved score at `scale` pixels per unit (18 units per staff space), with
 // `marks` (as --added, --changed and --removed give them).
-Canvas wholeScore(const std::string& name, double scale, const std::vector<Mark>& marks = {}) {
+Canvas wholeScore(const std::string& name, double scale, std::vector<Mark> marks = {}) {
     const auto doc = engraved(name);
     if (!marks.empty()) {
         const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
         REQUIRE(layout);
-        REQUIRE(checkMarks(marks, int(layout->barStarts.size()), int(layout->staves.size())) == "");
+        REQUIRE(checkMarks(marks, BarNumbers({}, int(layout->barStarts.size())), int(layout->staves.size())) == "");
         doc->setToneRegions(toneRegions(marks, *layout, doc->width(), doc->height()));
     }
     return doc->render(scale, 0, 0, int(std::ceil(doc->width() * scale)), int(std::ceil(doc->height() * scale)));
@@ -192,5 +192,31 @@ TEST_SUITE("golden scores") {
         const std::vector<Mark> marks = {{Tone::Added, 1, 1, 1}, {Tone::Changed, 2, 2, 0}, {Tone::Removed, 3, 3, 2}};
         const Canvas c = wholeScore("piano.musicxml", 0.75, marks);
         checkGolden("score-piano-marked", throughSixelInks(c, kPaperColours.inks(), kPaperColours.paper, kPaperColours.opaque));
+    }
+
+    TEST_CASE("single notes on paper: the F sharp of a chord changed, a beamed B added, a chord's top note removed") {
+        const EngraveResult r =
+            engraveScore(std::string(STAVE_TEST_DATA_DIR) + "/piano.musicxml", defaultVerovioDataDir(), /*readNotes=*/true);
+        REQUIRE_MESSAGE(r.error.empty(), r.error);
+        std::string error;
+        const auto doc = SvgDocument::fromData(r.svg, error);
+        REQUIRE_MESSAGE(doc, error);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        prepareForPaging(*doc, *layout);
+        auto idOf = [&](size_t measure, int staff, int onsetNum, int onsetDen, int midi) {
+            for (const ScoreNote& n : r.notes)
+                if (n.measure == measure && n.staff == staff && n.onsetNum == onsetNum && n.onsetDen == onsetDen &&
+                    n.midi == midi)
+                    return n.id;
+            FAIL("no such note");
+            return std::string();
+        };
+        CHECK(doc->setToneElements({{idOf(0, 1, 0, 1, 66), Tone::Changed},
+                                    {idOf(1, 1, 1, 2, 71), Tone::Added},
+                                    {idOf(2, 2, 0, 1, 57), Tone::Removed}}) == 3);
+        const double scale = 1.5;
+        const Canvas c = doc->render(scale, 0, 0, int(std::ceil(doc->width() * scale)), int(std::ceil(doc->height() * scale)));
+        checkGolden("score-piano-notes", throughSixelInks(c, kPaperColours.inks(), kPaperColours.paper, kPaperColours.opaque));
     }
 }

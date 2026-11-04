@@ -134,6 +134,74 @@ TEST_SUITE("engraving") {
         }
     }
 
+    TEST_CASE("each bar's printed number comes from Verovio's SVG") {
+        CHECK(measureNumbers("<g id=\"a\" class=\"measure\" data-n=\"0\"><g class=\"staff\"/></g>"
+                             "<g class=\"mNum\"/><g id=\"b\" class=\"measure\"></g>"
+                             "<g class=\"measure\" data-n=\"12a\"/>") == std::vector<std::string>{"0", "", "12a"});
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir());
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        CHECK(r.measureNumbers == std::vector<std::string>{"1", "2", "3"});
+        std::string error;
+        const auto doc = SvgDocument::fromData(r.svg, error);
+        REQUIRE(doc);
+        const std::optional<ScoreLayout> layout = findScoreLayout(*doc);
+        REQUIRE(layout);
+        CHECK(layout->barMeasures == std::vector<size_t>{0, 1, 2});
+        const BarNumbers numbers = BarNumbers::of(*layout, r.measureNumbers);
+        CHECK(!numbers.counted());
+        CHECK(numbers.labels() == std::vector<std::string>{"1", "2", "3"});
+    }
+
+    TEST_CASE("every note, with its bar, staff, voice, start and pitch") {
+        CHECK(engraveScore(testData("piano.musicxml"), defaultVerovioDataDir()).notes.empty());  // unless asked
+        const EngraveResult r = engraveScore(testData("piano.musicxml"), defaultVerovioDataDir(), /*readNotes=*/true);
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        // Written as (measure, staff, voice, start in quarter notes, MIDI pitch).
+        std::vector<std::string> got;
+        for (const ScoreNote& n : r.notes) {
+            CHECK(!n.id.empty());
+            got.push_back(std::to_string(n.measure) + " s" + std::to_string(n.staff) + " v" + std::to_string(n.voice) +
+                          " " + std::to_string(n.onsetNum) + "/" + std::to_string(n.onsetDen) + " " +
+                          std::to_string(n.midi));
+        }
+        const std::vector<std::string> want{
+            // Bar 1: a D major chord, then a rest, over a dotted half note in the left hand.
+            "0 s1 v1 0/1 62", "0 s1 v1 0/1 66", "0 s1 v1 0/1 69", "0 s2 v2 0/1 50",
+            // Bar 2: four eighth notes and a quarter, over three quarters.
+            "1 s1 v1 0/1 69", "1 s1 v1 1/2 71", "1 s1 v1 1/1 72", "1 s1 v1 3/2 71", "1 s1 v1 2/1 69",
+            "1 s2 v2 0/1 54", "1 s2 v2 1/1 55", "1 s2 v2 2/1 45",
+            // Bar 3: three quarters, over a two-note chord.
+            "2 s1 v1 0/1 69", "2 s1 v1 1/1 66", "2 s1 v1 2/1 62", "2 s2 v2 0/1 50", "2 s2 v2 0/1 57"};
+        CHECK(got == want);
+    }
+
+    TEST_CASE("a note's pitch is what it sounds, for a transposing instrument and under an 8va line") {
+        const EngraveResult r = engraveScore(testData("clarinet.musicxml"), defaultVerovioDataDir(), /*readNotes=*/true);
+        REQUIRE_MESSAGE(r.error == "", r.error);
+        REQUIRE(r.notes.size() == 2);
+        CHECK(r.notes[0].midi == 72);
+        CHECK(r.notes[1].midi == 91);
+        CHECK(r.notes[1].onsetNum == 1);
+        CHECK(r.notes[1].onsetDen == 1);
+    }
+
+    TEST_CASE("bar numbers are found as printed, or counted from 1 without them") {
+        const BarNumbers printed({"0", "1", "2", "2", "2a", "3"}, 6);
+        CHECK(!printed.counted());
+        CHECK(printed.find(0) == std::pair{0, 0});
+        CHECK(printed.find(2) == std::pair{2, 3});
+        CHECK(!printed.find(4));
+        CHECK(printed.label(4) == "2a");
+        CHECK(printed.describe() == "its bars run from 0 to 3");
+        // Any bar without a number, no whole numbers at all, or the wrong count: counted instead.
+        for (const BarNumbers& counted : {BarNumbers({"1", "", "3"}, 3), BarNumbers({"A", "B", "C"}, 3),
+                                          BarNumbers({"1", "2"}, 3), BarNumbers({}, 3)}) {
+            CHECK(counted.counted());
+            CHECK(counted.labels() == std::vector<std::string>{"1", "2", "3"});
+            CHECK(counted.find(3) == std::pair{2, 2});
+        }
+    }
+
     TEST_CASE("finds the four bars of the one-staff scale") {
         const EngraveResult r = engraveScore(testData("scale.musicxml"), defaultVerovioDataDir());
         REQUIRE_MESSAGE(r.error == "", r.error);
