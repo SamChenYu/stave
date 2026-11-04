@@ -145,6 +145,13 @@ std::vector<SvgDocument::ToneRegion> toneRegions(const std::vector<Mark>& marks,
             y0 = layout.staves[size_t(m.staff - 1)].bandTop;
             y1 = layout.staves[size_t(m.staff - 1)].bandBottom;
         }
+        // A fill is a background: one band across all its bars, barlines and all.
+        if (m.fill) {
+            const size_t last = size_t(m.lastIndex);
+            regions.push_back({layout.barStarts[size_t(m.firstIndex)], y0,
+                               last + 1 < size_t(bars) ? layout.barStarts[last + 1] : pageWidth, y1, m.tone});
+            continue;
+        }
         // One region a bar, so that the barlines between them stay plain too.
         for (size_t b = size_t(m.firstIndex); b <= size_t(m.lastIndex); ++b) {
             if (insidesKnown)

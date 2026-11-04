@@ -182,6 +182,17 @@ TEST_SUITE("marks") {
         CHECK(r[2].x1 == 440);
     }
 
+    TEST_CASE("a fill is one band across its bars, barlines and all") {
+        ScoreLayout l = threeBarsTwoStaves();
+        l.barInsides = {{102, 197}, {203, 297}, {303, 440}};
+        std::vector<Mark> marks = found("1-2");
+        marks[0].fill = true;
+        const auto r = toneRegions(marks, l, 500, 400);
+        REQUIRE(r.size() == 1);
+        CHECK(r[0].x0 == 100);
+        CHECK(r[0].x1 == 300);  // up to where bar 3 starts
+    }
+
     TEST_CASE("without barlines found, a bar runs from its start to the next bar's, the last to the page's edge") {
         const auto r = toneRegions(found("1,2-3"), threeBarsTwoStaves(), 500, 400);
         REQUIRE(r.size() == 3);
