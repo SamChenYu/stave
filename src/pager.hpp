@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "color.hpp"
+#include "compare.hpp"
 #include "encode.hpp"
 #include "score.hpp"
 #include "svgimage.hpp"
@@ -65,3 +66,51 @@ View startView(const SvgDocument&, const PagerOptions&, const PagerLayout&, int 
 // Shows the document full screen, on the terminal's alternate screen, until the user quits.
 // Needs an interactive terminal; returns false (having changed nothing) if input can't be read.
 bool runPager(const SvgDocument&, const TerminalInfo&, const PagerOptions&);
+
+// ---- Two versions side by side (--compare): the old on the left, the new on the right.
+
+struct CompareOptions {
+    // Each version's name, stops, bar labels and starting place. How to draw (output, inks,
+    // paper) comes from `after`, and so do the changes n and N go to, which should include the
+    // old version's, moved onto the new one's bars.
+    PagerOptions before, after;
+    BarMap bars;  // which bar of one is which bar of the other
+};
+
+// The two halves of the screen. For braille, widths are in dots, two to a character.
+struct CompareLayout {
+    PagerLayout screen;   // the whole image area
+    SplitWidths split;    // its two halves and the gap between them
+    int leftCols;         // the left half's width in characters, for the status line
+};
+CompareLayout compareLayout(int cols, int rows, int cellW, int cellH, Output output = Output::Sixel);
+
+struct CompareViews {
+    View before, after;
+};
+
+// The views a comparison opens with: the new version where startView would put it, in the right
+// half, and the old one at the same scale in the left half, at the matching bar.
+CompareViews startCompareViews(const SvgDocument& before, const SvgDocument& after, const CompareOptions&,
+                               const CompareLayout&, int cellH);
+
+// Keeps the old version beside the new: moves `before` to the bar matching the first bar on the
+// new version's screen, and to the same staff.
+void followView(View& before, const View& after, const BarMap&);
+
+// Applies a key to a comparison: the new version moves, and the old follows it. Zooming zooms both.
+// Returns true if what's on screen changed.
+bool applyCompareKey(CompareViews&, Key, const BarMap&);
+
+// The status line for a comparison, cut or padded to `width` characters: the old version's name
+// and bars under the left half, then the new version's, the zoom and the keys under the right.
+std::string compareStatusLine(const CompareOptions&, const CompareViews&, int leftCols, int width);
+
+// The whole screen of a comparison: both halves, drawn, side by side.
+Canvas renderCompare(const SvgDocument& before, const SvgDocument& after, const CompareViews&,
+                     const CompareLayout&);
+
+// Shows two versions side by side, full screen, until the user quits. Like runPager, returns
+// false if input can't be read.
+bool runComparePager(const SvgDocument& before, const SvgDocument& after, const TerminalInfo&,
+                     const CompareOptions&);

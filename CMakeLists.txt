@@ -34,6 +34,7 @@ include(cmake/verovio.cmake)
 
 # ---- stave_core: everything except main(), shared by the program and the tests
 add_library(stave_core STATIC
+    src/compare.cpp
     src/encode.cpp
     src/keys.cpp
     src/marks.cpp

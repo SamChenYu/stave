@@ -104,6 +104,21 @@ a diff usually changes a few notes rather than whole bars, so `--marks` takes a 
 
 with `at`, `pitch` or `voice` it marks notes, otherwise whole bars. if every note of a chord is marked the same, its stem and dots get coloured too. a mark that matches no note, or a note marked two different ways, is an error. `n` / `N` jump between changes.
 
+### side by side
+
+`--compare` shows two versions next to each other, the old on the left and the new on the right.
+Keys move the new one and the old one follows, to the same bar and staff.
+
+```
+stave --compare old.musicxml new.musicxml --before-marks old.json --marks new.json --pairs 1-17=1-17,19-40=18-39
+```
+
+`--marks` (and `--added` and the like) mark the new version and `--before-marks` the old, so removed notes
+can be shown in red where they were. `--pairs` says which bars of the old version are which of the new, as
+runs of `OLD=NEW` bars: above, old bar 18 was deleted. Without it, bars are matched in order.
+`--name` and `--before-name` name each side on the status line, `--bar` and `--staff` start the new version
+somewhere else, and `n` / `N` jump between the changes on either side.
+
 ## Tests
 
 ```

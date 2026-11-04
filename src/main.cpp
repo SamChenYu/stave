@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "compare.hpp"
 #include "encode.hpp"
 #include "marks.hpp"
 #include "notemarks.hpp"
@@ -32,6 +33,7 @@ namespace {
 
 const char* const kUsage =
     "usage: stave FILE [--width N] [--print]\n"
+    "       stave --compare OLD NEW\n"
     "       stave --test-pattern\n"
     "       stave --terminal-info\n"
     "  FILE             a score (MusicXML .musicxml/.xml/.mxl, MEI .mei or ABC .abc) or an SVG (.svg),\n"
@@ -47,6 +49,12 @@ const char* const kUsage =
     "  --marks FILE.json  for a score: more marks, of bars or of single notes, from a file: a list like\n"
     "                   [{\"tone\": \"changed\", \"bar\": 12, \"staff\": 2, \"at\": \"3/2\", \"pitch\": 66}]\n"
     "  --name NAME      what the status line calls the file (default: its name), like \"song @ HEAD~1\"\n"
+    "  --compare OLD NEW  two versions of a score side by side, the old on the left, scrolling together;\n"
+    "                   --marks, --added and the like mark the new one, --bar and --staff are its own\n"
+    "  --before-marks FILE.json  with --compare: marks for the old version, like --marks\n"
+    "  --before-name NAME  with --compare: what the status line calls the old version\n"
+    "  --pairs RUNS     with --compare: which bars of the old version are which of the new, as runs of\n"
+    "                   OLD=NEW bars, like 1-17=1-17,19-40=18-39 (bar 18 deleted); by default, in order\n"
     "  --sixel, --kitty, --braille  how to draw (default: the best this terminal can show)\n"
     "  --paper          dark ink on a cream page, instead of the terminal's own colours\n"
     "  --png OUT.png    save the first screen (1600x900, dark ink on a cream page) instead\n"
@@ -191,6 +199,162 @@ int bench(const SvgDocument& doc, const PagerOptions& opt, const std::optional<S
     return bytes == 0 ? 1 : 0;
 }
 
+// Reads a --marks file into `bars` and `notes`. Returns "" if all is well, otherwise what's wrong.
+std::string readMarksFile(const std::string& path, std::vector<Mark>& bars, std::vector<NoteMark>& notes) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return "can't open " + path;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string error;
+    if (!parseMarksFile(text, path, bars, notes, error)) return error;
+    return "";
+}
+
+// Colours a score's marks: finds the bars and notes they name and sets them on the document.
+// Returns "" if all is well, otherwise what's wrong with the first mark that isn't.
+std::string applyMarks(SvgDocument& doc, const ScoreLayout& layout, const BarNumbers& numbers,
+                       std::vector<Mark>& bars, const std::vector<NoteMark>& notes,
+                       const std::vector<ScoreNote>& scoreNotes) {
+    if (std::string error = checkMarks(bars, numbers, int(layout.staves.size())); !error.empty()) return error;
+    doc.setToneRegions(toneRegions(bars, layout, doc.width(), doc.height()));
+    std::vector<std::pair<std::string, Tone>> elements;
+    if (std::string error = findNoteMarks(notes, scoreNotes, layout, numbers, bars, elements); !error.empty())
+        return error;
+    doc.setToneElements(elements);
+    return "";
+}
+
+// One version of a score, engraved, laid out and marked, ready to page through.
+struct MarkedScore {
+    std::unique_ptr<SvgDocument> doc;
+    ScoreLayout layout;
+    BarNumbers numbers{{}, 0};
+    std::vector<std::pair<int, int>> changes;  // where its marks start, for n and N
+};
+
+// Engraves `path` and colours its marks. On failure, returns nothing with the reason in `error`.
+std::optional<MarkedScore> loadMarkedScore(const std::string& path, const std::string& dataDir,
+                                           std::vector<Mark>& bars, const std::vector<NoteMark>& notes,
+                                           std::string& error) {
+    double engraveMs = 0;
+    std::vector<std::string> measureNumbers;
+    std::vector<ScoreNote> scoreNotes;
+    MarkedScore s;
+    s.doc = loadDocument(path, /*isSvg=*/false, dataDir, error, engraveMs, measureNumbers, !notes.empty(),
+                         scoreNotes);
+    if (!s.doc) return std::nullopt;
+    const std::optional<ScoreLayout> layout = findScoreLayout(*s.doc);
+    if (!layout) {
+        error = "can't find the bars in " + path;
+        return std::nullopt;
+    }
+    s.layout = *layout;
+    prepareForPaging(*s.doc, s.layout);
+    s.numbers = BarNumbers::of(s.layout, measureNumbers);
+    if (std::string e = applyMarks(*s.doc, s.layout, s.numbers, bars, notes, scoreNotes); !e.empty()) {
+        error = e;
+        return std::nullopt;
+    }
+    s.changes = changeStarts(bars, notes, s.numbers);
+    return s;
+}
+
+// What --compare was asked to show.
+struct CompareRequest {
+    std::string beforeFile, afterFile, dataDir;
+    std::string beforeName, afterName;
+    std::vector<Mark> beforeMarks;
+    std::vector<NoteMark> beforeNoteMarks;
+    std::vector<Mark> afterMarks;
+    std::vector<NoteMark> afterNoteMarks;
+    std::vector<BarRun> pairs;
+    std::optional<int> startBar, startStaff;  // on the new version
+    std::optional<Output> forcedOutput;
+    bool paper = false;
+    std::optional<std::string> pngPath;
+};
+
+// The pager's options for one version of a comparison.
+PagerOptions compareSide(const MarkedScore& s, const std::string& name) {
+    PagerOptions opt;
+    opt.name = name;
+    opt.staffSpaceUnits = s.layout.staffSpace;
+    opt.stops = scoreStops(s.layout, s.doc->height());
+    opt.barLabels = s.numbers.labels();
+    return opt;
+}
+
+// --compare: two versions side by side.
+int runCompare(CompareRequest& r) {
+    std::string error;
+    std::optional<MarkedScore> before = loadMarkedScore(r.beforeFile, r.dataDir, r.beforeMarks, r.beforeNoteMarks, error);
+    if (!before) {
+        std::fprintf(stderr, "stave: %s\n", error.c_str());
+        return 1;
+    }
+    std::optional<MarkedScore> after = loadMarkedScore(r.afterFile, r.dataDir, r.afterMarks, r.afterNoteMarks, error);
+    if (!after) {
+        std::fprintf(stderr, "stave: %s\n", error.c_str());
+        return 1;
+    }
+
+    CompareOptions opt;
+    if (const std::string e = mapBars(r.pairs, before->numbers, after->numbers, opt.bars); !e.empty()) {
+        std::fprintf(stderr, "stave: %s\n", e.c_str());
+        return 1;
+    }
+    opt.before = compareSide(*before, r.beforeName);
+    opt.after = compareSide(*after, r.afterName);
+
+    // n and N go to every change, on either side, at the new version's bars.
+    std::vector<std::pair<int, int>> changes = after->changes;
+    for (const auto& [bar, staff] : before->changes)
+        if (size_t(bar) < opt.bars.oldToNew.size()) changes.emplace_back(opt.bars.oldToNew[size_t(bar)], staff);
+    std::sort(changes.begin(), changes.end());
+    changes.erase(std::unique(changes.begin(), changes.end()), changes.end());
+    opt.after.stops.changes = changes;
+
+    if (r.startBar) {
+        const std::optional<std::pair<int, int>> found = after->numbers.find(*r.startBar);
+        if (!found) {
+            std::fprintf(stderr, "stave: %s has no bar %d; %s\n", r.afterFile.c_str(), *r.startBar,
+                         after->numbers.describe().c_str());
+            return 1;
+        }
+        opt.after.startBar = found->first + 1;
+    }
+    opt.after.startStaff = r.startStaff.value_or(1);
+
+    if (r.pngPath) {
+        // The first screen on a 1600x900 display with 10x20-pixel characters, as --png draws a score.
+        CompareLayout screen{};
+        screen.screen = PagerLayout{45, 1600, 900};
+        screen.split = splitWidths(1600, 10);
+        screen.leftCols = screen.split.left / 10;
+        const CompareViews views = startCompareViews(*before->doc, *after->doc, opt, screen, 20);
+        const Canvas c = renderCompare(*before->doc, *after->doc, views, screen);
+        if (!writePng(c, kPaperColours.inks(), kPaperColours.paper, *r.pngPath)) {
+            std::fprintf(stderr, "stave: couldn't write %s\n", r.pngPath->c_str());
+            return 1;
+        }
+        std::printf("wrote %s (%dx%d)\n", r.pngPath->c_str(), c.w, c.h);
+        return 0;
+    }
+
+    ConsoleSetup console;
+    const TerminalInfo term = probeTerminal();
+    const InkAndPaper colours = r.paper ? kPaperColours : chooseColours(term);
+    opt.after.output = r.forcedOutput.value_or(chooseOutput(term));
+    opt.after.inks = colours.inks();
+    opt.after.brailleColours = toneColours(colours.inks(), colours.exact);
+    opt.after.paper = colours.paper;
+    opt.after.transparent = !colours.opaque;
+    if (!isInteractive() || !runComparePager(*before->doc, *after->doc, term, opt)) {
+        std::fputs("stave: --compare needs an interactive terminal, or --png\n", stderr);
+        return 1;
+    }
+    return 0;
+}
+
 int run(int argc, char** argv) {
     bool testPatternRequested = false, infoRequested = false, printRequested = false, forceSvg = false;
     bool paperRequested = false, benchRequested = false;
@@ -200,6 +364,12 @@ int run(int argc, char** argv) {
     std::vector<Mark> marks;
     std::vector<NoteMark> noteMarks;
     bool marksFileGiven = false;
+    // --compare: the old version, and what to show on it
+    std::optional<std::string> beforeFile, beforeName;
+    std::vector<Mark> beforeMarks;
+    std::vector<NoteMark> beforeNoteMarks;
+    bool beforeMarksGiven = false, pairsGiven = false;
+    std::vector<BarRun> pairs;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         const bool hasValue = i + 1 < argc;
@@ -255,27 +425,51 @@ int run(int argc, char** argv) {
         } else if (arg == "--name") {
             if (!hasValue) return usageError("--name needs a name to show");
             shownName = argv[++i];
-        } else if (arg == "--marks") {
-            if (!hasValue) return usageError("--marks needs a file of marks");
-            const std::string path = argv[++i];
-            std::ifstream in(path, std::ios::binary);
-            if (!in) {
-                std::fprintf(stderr, "stave: can't open %s\n", path.c_str());
-                return 1;
-            }
-            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            std::string error;
-            if (!parseMarksFile(text, path, marks, noteMarks, error)) {
+        } else if (arg == "--marks" || arg == "--before-marks") {
+            if (!hasValue) return usageError(std::string(arg) + " needs a file of marks");
+            const bool before = arg == "--before-marks";
+            if (const std::string error = readMarksFile(argv[++i], before ? beforeMarks : marks,
+                                                        before ? beforeNoteMarks : noteMarks);
+                !error.empty()) {
                 std::fprintf(stderr, "stave: %s\n", error.c_str());
                 return 1;
             }
-            marksFileGiven = true;
+            (before ? beforeMarksGiven : marksFileGiven) = true;
+        } else if (arg == "--compare") {
+            if (i + 2 >= argc) return usageError("--compare needs two scores: the old version, then the new");
+            if (file) return usageError("give only one file, or --compare and two");
+            beforeFile = argv[++i];
+            file = argv[++i];
+        } else if (arg == "--pairs") {
+            if (!hasValue) return usageError("--pairs needs runs of bars, like 1-17=1-17,19-40=18-39");
+            std::string error;
+            if (!parsePairs(argv[++i], pairs, error)) return usageError(error);
+            pairsGiven = true;
+        } else if (arg == "--before-name") {
+            if (!hasValue) return usageError("--before-name needs a name to show");
+            beforeName = argv[++i];
         } else if (!arg.empty() && arg[0] == '-') {
             return usageError("unknown option '" + std::string(arg) + "'");
         } else {
             if (file) return usageError("give only one file");
             file = std::string(arg);
         }
+    }
+    if ((beforeMarksGiven || pairsGiven || beforeName) && !beforeFile)
+        return usageError("--before-marks, --pairs and --before-name only apply with --compare");
+    if (beforeFile) {
+        if (forceSvg || isSvgFile(*beforeFile) || isSvgFile(*file)) return usageError("--compare only takes scores");
+        if (printRequested || width || benchRequested)
+            return usageError("--print, --width and --bench don't apply with --compare");
+        if (testPatternRequested || infoRequested)
+            return usageError("use only one of --compare, --test-pattern and --terminal-info");
+        CompareRequest request{*beforeFile, *file, dataDir.value_or(defaultVerovioDataDir()),
+                               beforeName.value_or(std::filesystem::path(*beforeFile).filename().string()),
+                               shownName.value_or(std::filesystem::path(*file).filename().string()),
+                               std::move(beforeMarks), std::move(beforeNoteMarks), std::move(marks),
+                               std::move(noteMarks), std::move(pairs), startBar, startStaff,
+                               forcedOutput, paperRequested, pngPath};
+        return runCompare(request);
     }
     if (int(testPatternRequested) + int(file.has_value()) + int(infoRequested) > 1)
         return usageError("use only one of FILE, --test-pattern and --terminal-info");
@@ -337,18 +531,11 @@ int run(int argc, char** argv) {
                 std::fprintf(stderr, "stave: can't find the bars in %s, so can't mark any\n", file->c_str());
                 return 1;
             }
-            if (const std::string error = checkMarks(marks, *numbers, staves); !error.empty()) {
-                std::fprintf(stderr, "stave: %s\n", error.c_str());
-                return 1;
-            }
-            doc->setToneRegions(toneRegions(marks, *layout, doc->width(), doc->height()));
-            std::vector<std::pair<std::string, Tone>> elements;
-            if (const std::string error = findNoteMarks(noteMarks, scoreNotes, *layout, *numbers, marks, elements);
+            if (const std::string error = applyMarks(*doc, *layout, *numbers, marks, noteMarks, scoreNotes);
                 !error.empty()) {
                 std::fprintf(stderr, "stave: %s\n", error.c_str());
                 return 1;
             }
-            doc->setToneElements(elements);
         }
     }
 
